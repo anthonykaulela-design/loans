@@ -282,13 +282,15 @@ async function sendWhatsAppMessage(companyId, recipientPhone, messageText) {
 }
 
 // ====================================================================================================
-// SECTION 4: PAYMENT GATEWAY INTEGRATIONS (STITCH GRAPHQL DEBIT ORDERS)
+// SECTION 4: PAYMENT GATEWAY INTEGRATIONS (STITCH GRAPHQL PAYMENT INITIATION)
 // ====================================================================================================
 
 async function initializeStitchDebitOrder(companyId, registrationFee = 350, monthlyFee = 200) {
   try {
     const totalAmount = registrationFee + monthlyFee;
+    const baseUrl = process.env.BASE_URL || 'https://loans-1uwj.onrender.com';
 
+    // 1. Authenticate against Stitch secure OAuth Token endpoint
     const authRes = await axios.post(
       'https://secure.stitch.money/connect/token', 
       new URLSearchParams({
@@ -302,23 +304,32 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
 
     const stitchToken = authRes.data.access_token;
 
+    // 2. Execute Stitch GraphQL Payment Initiation Mutation conforming to v2 specs
     const graphqlQuery = {
       query: `
-        mutation CreatePaymentRequest($amount: MoneyInput!, $payerReference: String!, $beneficiaryReference: String!) {
-          clientPaymentInitiation(input: {
-            amount: $amount,
-            payerReference: $payerReference,
-            beneficiaryReference: $beneficiaryReference
-          }) {
-            paymentUrl
-            id
+        mutation ClientPaymentInitiationCreate($input: ClientPaymentInitiationInput!) {
+          clientPaymentInitiationCreate(input: $input) {
+            paymentInit {
+              id
+              paymentUrl
+            }
+            errors {
+              message
+              code
+            }
           }
         }
       `,
       variables: {
-        amount: { quantity: totalAmount.toFixed(2), currency: "ZAR" },
-        payerReference: `COMP-REG-${companyId}`,
-        beneficiaryReference: "L3-SAAS-REG"
+        input: {
+          amount: {
+            quantity: totalAmount.toFixed(2),
+            currency: "ZAR"
+          },
+          payerReference: `COMP-REG-${companyId}`,
+          beneficiaryReference: "L3-SAAS-REG",
+          redirectUrl: `${baseUrl}/api/payments/stitch-callback?company_id=${companyId}`
+        }
       }
     };
 
@@ -333,7 +344,15 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
       }
     );
 
-    const paymentUrl = stitchRes.data?.data?.clientPaymentInitiation?.paymentUrl;
+    const paymentData = stitchRes.data?.data?.clientPaymentInitiationCreate;
+    const paymentUrl = paymentData?.paymentInit?.paymentUrl;
+    const errors = paymentData?.errors;
+
+    if (errors && errors.length > 0) {
+      console.error('[Stitch GraphQL Execution Errors]:', JSON.stringify(errors));
+      return null;
+    }
+
     if (!paymentUrl) {
       console.error('[Stitch GraphQL Error Response]:', JSON.stringify(stitchRes.data));
       return null;
