@@ -115,7 +115,7 @@ const requireAdminRole = (req, res, next) => {
 // SECTION 3: OUTBOUND COMMUNICATION ENGINES (MTN SMS GATEWAY & WHATSAPP BAILEYS)
 // ====================================================================================================
 
-/**
+
  async function sendMTNSMS(phoneNumber, messageText, companyId, smsType = 'GENERAL') {
   try {
     // If keys are missing or set to test values, simulate success immediately for seamless testing
