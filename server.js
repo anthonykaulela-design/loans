@@ -460,6 +460,105 @@ app.get('/api/payments/stitch-callback', async (req, res) => {
   }
 });
 
+// ==========================================
+// 1. VIEW ALL PENDING ACCOUNTS / COMPANIES
+// ==========================================
+app.get('/api/admin/pending-accounts', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const [pending] = await pool.query(
+      "SELECT id, company_name, email, slug, created_at, subscription_status FROM companies WHERE subscription_status = 'PENDING' OR subscription_status IS NULL"
+    );
+    res.json({ success: true, pending_accounts: pending });
+  } catch (err) {
+    console.error('Error fetching pending accounts:', err);
+    res.status(500).json({ error: 'Database error fetching pending accounts' });
+  }
+});
+
+// ==========================================
+// 2. DELETE ALL PENDING ACCOUNTS
+// ==========================================
+app.delete('/api/admin/delete-pending-accounts', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      "DELETE FROM companies WHERE subscription_status = 'PENDING' OR subscription_status IS NULL"
+    );
+    res.json({ 
+      success: true, 
+      message: `Successfully deleted ${result.affectedRows} pending account(s).` 
+    });
+  } catch (err) {
+    console.error('Error deleting pending accounts:', err);
+    res.status(500).json({ error: 'Database error deleting pending accounts' });
+  }
+});
+
+// ==========================================
+// 3. PROVISION / REGISTER L3 TECHNOLOGIES
+// ==========================================
+const bcrypt = require('bcrypt');
+
+app.post('/api/admin/provision-l3-technologies', async (req, res) => {
+  try {
+    const companyName = 'L3 Technologies';
+    const slug = 'l3-technologies';
+    const email = 'Tebogoanthony455@gmail.com';
+    const plainPassword = 'Tebogo1234@';
+    
+    // Hash password securely
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(plainPassword, saltRounds);
+
+    // Check if company already exists
+    const [existing] = await pool.query("SELECT id FROM companies WHERE slug = ? OR email = ?", [slug, email]);
+    
+    let companyId;
+    if (existing.length > 0) {
+      companyId = existing[0].id;
+      // Update existing record to ensure active status and correct credentials
+      await pool.query(
+        `UPDATE companies 
+         SET company_name = ?, email = ?, password_hash = ?, subscription_status = 'ACTIVE', agents_module_active = 1, agent_commission_amount = 150.00 
+         WHERE id = ?`,
+        [companyName, email, passwordHash, companyId]
+      );
+    } else {
+      // Insert new active company account
+      const [insertResult] = await pool.query(
+        `INSERT INTO companies (company_name, slug, email, password_hash, subscription_status, agents_module_active, agent_commission_amount) 
+         VALUES (?, ?, ?, ?, 'ACTIVE', 1, 150.00)`,
+        [companyName, slug, email, passwordHash]
+      );
+      companyId = insertResult.insertId;
+    }
+
+    // Ensure staff/admin user record exists for this company
+    const [existingUser] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
+    if (existingUser.length === 0) {
+      await pool.query(
+        `INSERT INTO users (company_id, first_name, last_name, id_number, email, phone, password_hash, role) 
+         VALUES (?, 'Tebogo', 'Kaulela', '9901015000088', ?, '0715694131', ?, 'ADMIN')`,
+        [companyId, email, passwordHash]
+      );
+    } else {
+      await pool.query(
+        `UPDATE users SET company_id = ?, role = 'ADMIN', password_hash = ? WHERE email = ?`,
+        [companyId, passwordHash, email]
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'L3 Technologies account successfully provisioned and set to ACTIVE with ADMIN privileges!',
+      login_url: `${req.protocol}://${req.get('host')}/company-login.html`,
+      credentials: { email, slug }
+    });
+  } catch (err) {
+    console.error('Error provisioning L3 Technologies:', err);
+    res.status(500).json({ error: err.message || 'Server error provisioning account' });
+  }
+});
+
 app.get('/simulate-payment.html', (req, res) => {
   const companyId = req.query.company_id;
   res.send(`
