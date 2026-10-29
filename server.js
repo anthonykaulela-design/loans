@@ -137,7 +137,7 @@ async function sendMTNSMS(phoneNumber, messageText, companyId, smsType = 'GENERA
     }
 
     const response = await axios.post(
-      process.env.MTN_SMS_URL || 'https://api.mtn.com/v1/sms/send', 
+      process.env.MTN_SMS_URL || 'https://api.mtn.com/v2/sms/send', 
       {
         outboundSMSMessageRequest: {
           address: [`tel:+${formattedPhone}`],
