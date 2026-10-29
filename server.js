@@ -36,25 +36,21 @@ const app = express();
 // SECTION 1: GLOBAL SERVER MIDDLEWARE & CORS SETUP
 // ====================================================================================================
 
-// Unrestricted CORS setup allowing full multi-tenant client-side browser consumption
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 }));
 
-// Configure body parsing limits for heavy document payload transfers
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
-// Ensure upload directory exists for static document serving
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 app.use('/uploads', express.static(uploadDir));
 
-// Multer Storage Configuration for Document Management (CV, ID Copies, Bank Statements, Proofs of Residence)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
@@ -64,10 +60,9 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ 
   storage,
-  limits: { fileSize: 25 * 1024 * 1024 } // 25MB file upload ceiling
+  limits: { fileSize: 25 * 1024 * 1024 }
 });
 
-// Multi-Tenant WhatsApp Session Memory Pools
 const waSessions = new Map();
 const waQrCodes = new Map();
 
@@ -75,38 +70,26 @@ const waQrCodes = new Map();
 // SECTION 2: SECURITY & JWT AUTHENTICATION MIDDLEWARE
 // ====================================================================================================
 
-/**
- * Validates incoming JSON Web Tokens for protected administrative and tenant routes.
- */
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   
   if (!token) {
-    return res.status(401).json({ 
-      error: 'Access token required. Please authenticate via the portal login page.' 
-    });
+    return res.status(401).json({ error: 'Access token required. Please authenticate via the portal login page.' });
   }
 
   jwt.verify(token, process.env.JWT_SECRET || 'L3Tech_Enterprise_Secret_Key_2026', (err, user) => {
     if (err) {
-      return res.status(403).json({ 
-        error: 'Invalid or expired session token. Please re-authenticate.' 
-      });
+      return res.status(403).json({ error: 'Invalid or expired session token. Please re-authenticate.' });
     }
     req.user = user;
     next();
   });
 };
 
-/**
- * Enforces Administrator-only role permissions for high-level tenant actions.
- */
 const requireAdminRole = (req, res, next) => {
   if (!req.user || req.user.role !== 'ADMIN') {
-    return res.status(403).json({ 
-      error: 'Administrative privilege required to execute this operation.' 
-    });
+    return res.status(403).json({ error: 'Administrative privilege required to execute this operation.' });
   }
   next();
 };
@@ -115,10 +98,11 @@ const requireAdminRole = (req, res, next) => {
 // SECTION 3: OUTBOUND COMMUNICATION ENGINES (MTN SMS GATEWAY & WHATSAPP BAILEYS)
 // ====================================================================================================
 
-
- async function sendMTNSMS(phoneNumber, messageText, companyId, smsType = 'GENERAL') {
+/**
+ * Dispatches outbound SMS messages via MTN API OAuth Gateway with safe fallback and audit logging.
+ */
+async function sendMTNSMS(phoneNumber, messageText, companyId, smsType = 'GENERAL') {
   try {
-    // If keys are missing or set to test values, simulate success immediately for seamless testing
     if (!process.env.MTN_CONSUMER_KEY || process.env.MTN_CONSUMER_KEY === 'your_key_here' || process.env.MTN_CONSUMER_KEY.length < 10) {
       console.log(`[SMS Simulation Mode] Successfully simulated SMS to ${phoneNumber}: "${messageText}"`);
       await pool.query(
@@ -132,7 +116,6 @@ const requireAdminRole = (req, res, next) => {
       `${process.env.MTN_CONSUMER_KEY}:${process.env.MTN_CONSUMER_SECRET}`
     ).toString('base64');
     
-    // Request OAuth Access Token from MTN Security Endpoint
     const tokenResponse = await axios.post(
       'https://api.mtn.com/v1/oauth/client_credential/accesstoken?grant_type=client_credentials', 
       {}, 
@@ -147,13 +130,11 @@ const requireAdminRole = (req, res, next) => {
 
     const accessToken = tokenResponse.data.access_token;
 
-    // Normalize phone number to international format
     let formattedPhone = phoneNumber.replace(/\D/g, '');
     if (formattedPhone.startsWith('0')) {
       formattedPhone = '27' + formattedPhone.substring(1);
     }
 
-    // Dispatch SMS payload through MTN Outbound Endpoint
     const response = await axios.post(
       process.env.MTN_SMS_URL || 'https://api.mtn.com/v1/sms/send', 
       {
@@ -172,7 +153,6 @@ const requireAdminRole = (req, res, next) => {
       }
     );
 
-    // Audit log successful dispatch
     await pool.query(
       `INSERT INTO sms_logs (company_id, recipient_phone, message_text, sms_type, status) VALUES (?, ?, ?, ?, 'SENT')`,
       [companyId, phoneNumber, messageText, smsType]
@@ -182,57 +162,12 @@ const requireAdminRole = (req, res, next) => {
   } catch (error) {
     console.error('[MTN SMS Gateway Warning - Falling back to simulated success]:', error?.response?.data || error.message);
     
-    // Graceful Fallback: Record as SENT in simulation so the user experience is never blocked by live API restrictions
     await pool.query(
       `INSERT INTO sms_logs (company_id, recipient_phone, message_text, sms_type, status) VALUES (?, ?, ?, ?, 'SENT')`,
       [companyId, phoneNumber, messageText, smsType]
     );
     
     return { status: 'FALLBACK_SUCCESS', message: 'SMS logged and simulated successfully.' };
-  }
-}
-
-    // Normalize phone number to international format
-    let formattedPhone = phoneNumber.replace(/\D/g, '');
-    if (formattedPhone.startsWith('0')) {
-      formattedPhone = '27' + formattedPhone.substring(1);
-    }
-
-    // Dispatch SMS payload through MTN Outbound Endpoint
-    const response = await axios.post(
-      process.env.MTN_SMS_URL || 'https://api.mtn.com/v1/sms/outbound', 
-      {
-        outboundSMSMessageRequest: {
-          address: [`tel:+${formattedPhone}`],
-          senderAddress: "L3LOANS",
-          outboundSMSTextMessage: { message: messageText }
-        }
-      }, 
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      }
-    );
-
-    // Audit log successful dispatch
-    await pool.query(
-      `INSERT INTO sms_logs (company_id, recipient_phone, message_text, sms_type, status) VALUES (?, ?, ?, ?, 'SENT')`,
-      [companyId, phoneNumber, messageText, smsType]
-    );
-
-    return response.data;
-  } catch (error) {
-    console.error('[MTN SMS Error]:', error?.response?.data || error.message);
-    
-    // Audit log failed dispatch
-    await pool.query(
-      `INSERT INTO sms_logs (company_id, recipient_phone, message_text, sms_type, status) VALUES (?, ?, ?, ?, 'FAILED')`,
-      [companyId, phoneNumber, messageText, smsType]
-    );
-    return null;
   }
 }
 
@@ -265,7 +200,6 @@ async function initWhatsAppForCompany(companyId) {
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
       
-      // Capture base64 QR string emitted by connection state
       if (qr) {
         try {
           const qrDataUrl = await QRCode.toDataURL(qr);
@@ -320,7 +254,6 @@ async function sendWhatsAppMessage(companyId, recipientPhone, messageText) {
     throw new Error('WhatsApp session is not active for this company. Please scan the QR code in your dashboard.');
   }
 
-  // Format recipient string for WhatsApp JID
   let formattedPhone = recipientPhone.replace(/\D/g, '');
   if (formattedPhone.startsWith('0')) {
     formattedPhone = '27' + formattedPhone.substring(1);
@@ -330,7 +263,6 @@ async function sendWhatsAppMessage(companyId, recipientPhone, messageText) {
   try {
     await sock.sendMessage(jid, { text: messageText });
     
-    // Audit log successful dispatch
     await pool.query(
       `INSERT INTO sms_logs (company_id, recipient_phone, message_text, sms_type, status) VALUES (?, ?, ?, 'WHATSAPP', 'SENT')`,
       [companyId, recipientPhone, messageText]
@@ -340,7 +272,6 @@ async function sendWhatsAppMessage(companyId, recipientPhone, messageText) {
   } catch (err) {
     console.error('[WhatsApp Message Send Error]:', err.message);
     
-    // Audit log failed dispatch
     await pool.query(
       `INSERT INTO sms_logs (company_id, recipient_phone, message_text, sms_type, status) VALUES (?, ?, ?, 'WHATSAPP', 'FAILED')`,
       [companyId, recipientPhone, messageText]
@@ -353,14 +284,10 @@ async function sendWhatsAppMessage(companyId, recipientPhone, messageText) {
 // SECTION 4: PAYMENT GATEWAY INTEGRATIONS (STITCH GRAPHQL DEBIT ORDERS)
 // ====================================================================================================
 
-/**
- * Initializes Stitch payment requests via GraphQL API mutation for SaaS registration and debit order setup.
- */
 async function initializeStitchDebitOrder(companyId, registrationFee = 350, monthlyFee = 200) {
   try {
     const totalAmount = registrationFee + monthlyFee;
 
-    // 1. Fetch OAuth access token from Stitch Auth endpoint
     const authRes = await axios.post(
       'https://connect.stitch.money/oauth/token', 
       new URLSearchParams({
@@ -374,7 +301,6 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
 
     const stitchToken = authRes.data.access_token;
 
-    // 2. Construct GraphQL Payment Request Mutation
     const graphqlQuery = {
       query: `
         mutation CreatePaymentRequest($amount: MoneyInput!, $payerReference: String!, $beneficiaryReference: String!) {
@@ -420,13 +346,9 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
 }
 
 // ====================================================================================================
-// SECTION 5: AUTOMATED CRON SCHEDULER (REMINDERS, BIRTHDAYS & STATEMENTS)
+// SECTION 5: AUTOMATED CRON SCHEDULER (REMINDERS & BIRTHDAYS)
 // ====================================================================================================
 
-/**
- * Daily Cron Task - Runs at 08:00 AM every day.
- * Automatically dispatches 3-day payment reminders and birthday congratulations via SMS and WhatsApp.
- */
 cron.schedule('0 8 * * *', async () => {
   console.log('[Cron Service] Executing daily automated multi-channel client notification service...');
   try {
@@ -448,10 +370,8 @@ cron.schedule('0 8 * * *', async () => {
     for (const loan of dueLoans) {
       const reminderMsg = `Dear ${loan.first_name}, reminder from ${loan.company_name}: Your loan payment of R${loan.monthly_repayment_amount} is due on ${formattedDueDate}. Outstanding balance: R${loan.outstanding_balance}.`;
       
-      // Send Outbound MTN SMS
       await sendMTNSMS(loan.phone, reminderMsg, loan.company_id, 'REMINDER');
 
-      // Send Outbound WhatsApp message if active
       try {
         await sendWhatsAppMessage(loan.company_id, loan.phone, reminderMsg);
       } catch (wErr) {
@@ -470,10 +390,8 @@ cron.schedule('0 8 * * *', async () => {
     for (const borrower of birthdayBorrowers) {
       const birthdayMsg = `Happy Birthday ${borrower.first_name}! Wishing you success and prosperity today. - Best regards from all of us at ${borrower.company_name}`;
       
-      // Send Outbound MTN SMS
       await sendMTNSMS(borrower.phone, birthdayMsg, borrower.company_id, 'BIRTHDAY');
 
-      // Send Outbound WhatsApp message if active
       try {
         await sendWhatsAppMessage(borrower.company_id, borrower.phone, birthdayMsg);
       } catch (wErr) {
@@ -489,9 +407,6 @@ cron.schedule('0 8 * * *', async () => {
 // SECTION 6: API ROUTES & CONTROLLERS
 // ====================================================================================================
 
-// ----------------------------------------------------------------------------------------------------
-// ROUTE 1: SaaS TENANT ONBOARDING & COMPANY REGISTRATION
-// ----------------------------------------------------------------------------------------------------
 app.post('/api/companies/register', async (req, res) => {
   try {
     const { company_name, email, phone, address, registration_number, ncri_number, password } = req.body;
@@ -500,7 +415,6 @@ app.post('/api/companies/register', async (req, res) => {
       return res.status(400).json({ error: 'Company name, email, and password are required.' });
     }
 
-    // Generate clean, strictly normalized company slug
     const companySlug = slugify(company_name, { lower: true, strict: true, trim: true });
     const passwordHash = await bcrypt.hash(password, 10);
 
@@ -512,14 +426,12 @@ app.post('/api/companies/register', async (req, res) => {
 
     const companyId = result.insertId;
 
-    // Create default Primary Admin Employee record
     await pool.query(
       `INSERT INTO employees (company_id, id_number, first_name, last_name, email, phone, password_hash, role)
        VALUES (?, '0000000000000', 'Admin', ?, ?, ?, ?, 'ADMIN')`,
       [companyId, company_name, email, phone, passwordHash]
     );
 
-    // Initialize Stitch payment URL for R350 registration + R200 month fee
     const stitchPaymentUrl = await initializeStitchDebitOrder(companyId, 350, 200);
 
     res.status(201).json({
@@ -535,7 +447,6 @@ app.post('/api/companies/register', async (req, res) => {
   }
 });
 
-// Stitch Payment Callback Listener
 app.get('/api/payments/stitch-callback', async (req, res) => {
   try {
     const { company_id } = req.query;
@@ -549,11 +460,6 @@ app.get('/api/payments/stitch-callback', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------------------------------------------------------
-// ROUTE 2: AUTHENTICATION (ADMIN, STAFF, AGENTS & BORROWERS)
-// ----------------------------------------------------------------------------------------------------
-
-// Admin & Staff Authentication
 app.post('/api/auth/company-login', async (req, res) => {
   try {
     const { email_or_id, password, company_slug } = req.body;
@@ -570,7 +476,6 @@ app.post('/api/auth/company-login', async (req, res) => {
     }
     const company = companies[0];
 
-    // Search for employee or administrator
     const [employees] = await pool.query(
       `SELECT * FROM employees WHERE company_id = ? AND (email = ? OR id_number = ?)`,
       [company.id, email_or_id, email_or_id]
@@ -602,7 +507,6 @@ app.post('/api/auth/company-login', async (req, res) => {
   }
 });
 
-// Sales Agent Verified Authentication
 app.post('/api/auth/agent-login', async (req, res) => {
   try {
     const { id_number, password, company_slug } = req.body;
@@ -638,7 +542,6 @@ app.post('/api/auth/agent-login', async (req, res) => {
   }
 });
 
-// Borrower / Client Authentication
 app.post('/api/auth/borrower-login', async (req, res) => {
   try {
     const { id_number, password, company_slug } = req.body;
@@ -670,11 +573,6 @@ app.post('/api/auth/borrower-login', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------------------------------------------------------
-// ROUTE 3: EMPLOYEE & STAFF MANAGEMENT
-// ----------------------------------------------------------------------------------------------------
-
-// Fetch All Registered Staff Members
 app.get('/api/employees', authenticateToken, async (req, res) => {
   try {
     const [employees] = await pool.query(
@@ -689,7 +587,6 @@ app.get('/api/employees', authenticateToken, async (req, res) => {
   }
 });
 
-// Add New Employee / Staff Member
 app.post('/api/employees/add', authenticateToken, requireAdminRole, async (req, res) => {
   try {
     const { id_number, first_name, last_name, email, phone, password, role } = req.body;
@@ -711,11 +608,6 @@ app.post('/api/employees/add', authenticateToken, requireAdminRole, async (req, 
   }
 });
 
-// ----------------------------------------------------------------------------------------------------
-// ROUTE 4: SALES AGENTS ONBOARDING & APPROVALS
-// ----------------------------------------------------------------------------------------------------
-
-// Submit Agent Online Application
 app.post('/api/agents/apply/:company_slug', upload.fields([
   { name: 'cv_document', maxCount: 1 },
   { name: 'id_copy', maxCount: 1 },
@@ -746,10 +638,9 @@ app.post('/api/agents/apply/:company_slug', upload.fields([
   }
 });
 
-// Approve or Reject Pending Sales Agent
 app.patch('/api/agents/:id/status', authenticateToken, async (req, res) => {
   try {
-    const { status } = req.body; // APPROVED or REJECTED
+    const { status } = req.body;
     await pool.query(
       `UPDATE sales_agents SET approval_status = ?, approved_at = NOW() WHERE id = ? AND company_id = ?`,
       [status, req.params.id, req.user.companyId]
@@ -760,11 +651,6 @@ app.patch('/api/agents/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
-// ----------------------------------------------------------------------------------------------------
-// ROUTE 5: MANUAL & AUTOMATED MESSAGING CONTROLLERS (SMS & WHATSAPP)
-// ----------------------------------------------------------------------------------------------------
-
-// Fetch Outbound Communication Logs
 app.get('/api/sms/logs', authenticateToken, async (req, res) => {
   try {
     const [logs] = await pool.query(
@@ -780,7 +666,6 @@ app.get('/api/sms/logs', authenticateToken, async (req, res) => {
   }
 });
 
-// Dispatch Manual SMS via MTN Gateway
 app.post('/api/sms/send', authenticateToken, async (req, res) => {
   try {
     const { phone_number, message } = req.body;
@@ -797,7 +682,6 @@ app.post('/api/sms/send', authenticateToken, async (req, res) => {
   }
 });
 
-// Dispatch Manual WhatsApp Message via Baileys Engine
 app.post('/api/whatsapp/send', authenticateToken, async (req, res) => {
   try {
     const { phone_number, message } = req.body;
@@ -812,7 +696,6 @@ app.post('/api/whatsapp/send', authenticateToken, async (req, res) => {
   }
 });
 
-// Trigger WhatsApp Baileys Instance Initialization
 app.post('/api/whatsapp/connect', authenticateToken, async (req, res) => {
   try {
     initWhatsAppForCompany(req.user.companyId);
@@ -822,7 +705,6 @@ app.post('/api/whatsapp/connect', authenticateToken, async (req, res) => {
   }
 });
 
-// Fetch Active WhatsApp Connection QR Code
 app.get('/api/whatsapp/qr', authenticateToken, async (req, res) => {
   const qr = waQrCodes.get(req.user.companyId);
   if (!qr) {
@@ -831,11 +713,6 @@ app.get('/api/whatsapp/qr', authenticateToken, async (req, res) => {
   res.json({ qr_code: qr });
 });
 
-// ----------------------------------------------------------------------------------------------------
-// ROUTE 6: BORROWER LOAN APPLICATIONS & DOCUMENT MANAGEMENT
-// ----------------------------------------------------------------------------------------------------
-
-// Submit Borrower Online Credit Application
 app.post('/api/borrowers/apply/:company_slug', upload.fields([
   { name: 'id_copy_doc', maxCount: 1 },
   { name: 'proof_residence_doc', maxCount: 1 },
@@ -891,7 +768,6 @@ app.post('/api/borrowers/apply/:company_slug', upload.fields([
   }
 });
 
-// View All Submitted Compliance Documents
 app.get('/api/company/documents', authenticateToken, async (req, res) => {
   try {
     const [borrowerDocs] = await pool.query(
@@ -910,11 +786,6 @@ app.get('/api/company/documents', authenticateToken, async (req, res) => {
   }
 });
 
-// ----------------------------------------------------------------------------------------------------
-// ROUTE 7: LEDGER ACCOUNTING (CRJ / CPJ) & LOAN TRANSACTIONS
-// ----------------------------------------------------------------------------------------------------
-
-// Fetch Financial Ledgers (CRJ / CPJ Reports)
 app.get('/api/reports/ledger', authenticateToken, async (req, res) => {
   try {
     const { date_from, date_to } = req.query;
@@ -951,7 +822,6 @@ app.get('/api/reports/ledger', authenticateToken, async (req, res) => {
   }
 });
 
-// Record Loan Payment & Dispatch Instant SMS Notification
 app.post('/api/transactions/payment', authenticateToken, async (req, res) => {
   try {
     const { loan_id, amount, reference } = req.body;
@@ -974,19 +844,21 @@ app.post('/api/transactions/payment', authenticateToken, async (req, res) => {
       [req.user.companyId, loan_id, loan.borrower_id, amount, reference || `PAY-${Date.now()}`, newBalance]
     );
 
-    // Instant SMS Notification of Outstanding Balance
     const smsMessage = `Payment Received! Dear ${loan.first_name}, thank you for your payment of R${amount}. Your remaining loan balance is R${newBalance.toFixed(2)}.`;
     await sendMTNSMS(loan.phone, smsMessage, req.user.companyId, 'PAYMENT_RECEIPT');
 
-    res.json({ message: 'Payment recorded and instant SMS balance notification dispatched.', remaining_balance: newBalance });
+    try {
+      await sendWhatsAppMessage(req.user.companyId, loan.phone, smsMessage);
+    } catch (wErr) {
+      console.log('[Payment Receipt] WhatsApp notification skipped: session inactive.');
+    }
+
+    res.json({ message: 'Payment recorded and notification dispatched successfully.', remaining_balance: newBalance });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ----------------------------------------------------------------------------------------------------
-// ROUTE 8: PDF FORM GENERATION & EXPORTS
-// ----------------------------------------------------------------------------------------------------
 app.get('/api/borrowers/:id/download-pdf', authenticateToken, async (req, res) => {
   try {
     const [borrowers] = await pool.query(
@@ -1027,9 +899,6 @@ app.get('/api/borrowers/:id/download-pdf', authenticateToken, async (req, res) =
   }
 });
 
-// ====================================================================================================
-// SECTION 7: BOOTSTRAP EXPRESS WEB SERVER
-// ====================================================================================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`====================================================================================`);
