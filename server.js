@@ -116,6 +116,7 @@ async function sendMTNSMS(phoneNumber, messageText, companyId, smsType = 'GENERA
       `${process.env.MTN_CONSUMER_KEY}:${process.env.MTN_CONSUMER_SECRET}`
     ).toString('base64');
     
+    // Request OAuth Access Token from MTN Security Endpoint
     const tokenResponse = await axios.post(
       'https://api.mtn.com/v1/oauth/client_credential/accesstoken?grant_type=client_credentials', 
       {}, 
