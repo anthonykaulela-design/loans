@@ -289,8 +289,9 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
   try {
     const totalAmount = registrationFee + monthlyFee;
 
+    // Corrected Token URL below:
     const authRes = await axios.post(
-      'https://connect.stitch.money/oauth/token', 
+      'https://secure.stitch.money/connect/token', 
       new URLSearchParams({
         grant_type: 'client_credentials',
         client_id: process.env.STITCH_CLIENT_ID,
@@ -322,6 +323,29 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
       }
     };
 
+    const stitchRes = await axios.post(
+      process.env.STITCH_API_URL || 'https://api.stitch.money/graphql',
+      graphqlQuery,
+      {
+        headers: {
+          'Authorization': `Bearer ${stitchToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const paymentUrl = stitchRes.data?.data?.clientPaymentInitiation?.paymentUrl;
+    if (!paymentUrl) {
+      console.error('[Stitch GraphQL Error Response]:', JSON.stringify(stitchRes.data));
+      return null;
+    }
+
+    return paymentUrl;
+  } catch (err) {
+    console.error('[Stitch Payment Error]:', err?.response?.data || err.message);
+    return null;
+  }
+}
     const stitchRes = await axios.post(
       process.env.STITCH_API_URL || 'https://api.stitch.money/graphql',
       graphqlQuery,
