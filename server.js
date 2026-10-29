@@ -5,7 +5,7 @@
  * Architecture: Node.js, Express.js, MySQL (Connection Pool), JWT, Bcrypt.js, Baileys WhatsApp Web API,
  * MTN Outbound SMS Gateway, Stitch Payment Initiation GraphQL API, PDFKit, Node-Cron Engine.
  * 
- * Version: 3.5.0 Enterprise Release
+ * Version: 3.6.0 Enterprise Release
  * Contact / Author: Tebogo Anthony Kaulela (L3 Technologies)
  * Direct Email: anthonykaulela@gmail.com | Cell: 0715694131
  * Backend Host: https://loans-1uwj.onrender.com
@@ -50,6 +50,13 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 app.use('/uploads', express.static(uploadDir));
+
+// Serve static frontend files from 'public' folder
+const publicDir = path.join(__dirname, 'public');
+if (!fs.existsSync(publicDir)) {
+  fs.mkdirSync(publicDir, { recursive: true });
+}
+app.use(express.static(publicDir));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
@@ -98,9 +105,6 @@ const requireAdminRole = (req, res, next) => {
 // SECTION 3: OUTBOUND COMMUNICATION ENGINES (MTN SMS GATEWAY & WHATSAPP BAILEYS)
 // ====================================================================================================
 
-/**
- * Dispatches outbound SMS messages via MTN API OAuth Gateway with safe fallback and audit logging.
- */
 async function sendMTNSMS(phoneNumber, messageText, companyId, smsType = 'GENERAL') {
   try {
     if (!process.env.MTN_CONSUMER_KEY || process.env.MTN_CONSUMER_KEY === 'your_key_here' || process.env.MTN_CONSUMER_KEY.length < 10) {
@@ -116,7 +120,6 @@ async function sendMTNSMS(phoneNumber, messageText, companyId, smsType = 'GENERA
       `${process.env.MTN_CONSUMER_KEY}:${process.env.MTN_CONSUMER_SECRET}`
     ).toString('base64');
     
-    // Request OAuth Access Token from MTN Security Endpoint
     const tokenResponse = await axios.post(
       'https://api.mtn.com/v1/oauth/client_credential/accesstoken?grant_type=client_credentials', 
       {}, 
@@ -172,10 +175,6 @@ async function sendMTNSMS(phoneNumber, messageText, companyId, smsType = 'GENERA
   }
 }
 
-/**
- * Initializes a multi-tenant Baileys WhatsApp socket session per registered company.
- * Follows guidelines from https://baileys.wiki/[cite: 2]
- */
 async function initWhatsAppForCompany(companyId) {
   try {
     const sessionPath = path.join(__dirname, `wa_sessions/company_${companyId}`);
@@ -245,9 +244,6 @@ async function initWhatsAppForCompany(companyId) {
   }
 }
 
-/**
- * Transmits direct WhatsApp text messages via active socket connection.
- */
 async function sendWhatsAppMessage(companyId, recipientPhone, messageText) {
   let sock = waSessions.get(companyId);
   
@@ -282,7 +278,7 @@ async function sendWhatsAppMessage(companyId, recipientPhone, messageText) {
 }
 
 // ====================================================================================================
-// SECTION 4: PAYMENT GATEWAY INTEGRATIONS (STITCH GRAPHQL PAYMENT INITIATION WITH SIMULATION FALLBACK)
+// SECTION 4: PAYMENT GATEWAY INTEGRATIONS (STITCH GRAPHQL & SIMULATION)
 // ====================================================================================================
 
 async function initializeStitchDebitOrder(companyId, registrationFee = 350, monthlyFee = 200) {
@@ -290,13 +286,11 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
     const totalAmount = registrationFee + monthlyFee;
     const baseUrl = process.env.BASE_URL || 'https://loans-1uwj.onrender.com';
 
-    // Simulation fallback if client ID is missing, placeholder, or unapproved test keys
     if (!process.env.STITCH_CLIENT_ID || process.env.STITCH_CLIENT_ID === 'your_client_id_here') {
-      console.log(`[Stitch Simulation Mode] Simulated payment checkout link generated for Company ID: ${companyId}`);
-      return `${baseUrl}/api/payments/stitch-callback?company_id=${companyId}`;
+      console.log(`[Stitch Simulation Mode] Simulated payment wall generated for Company ID: ${companyId}`);
+      return `${baseUrl}/simulate-payment.html?company_id=${companyId}`;
     }
 
-    // 1. Authenticate against Stitch secure OAuth Token endpoint
     const authRes = await axios.post(
       'https://secure.stitch.money/connect/token', 
       new URLSearchParams({
@@ -310,7 +304,6 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
 
     const stitchToken = authRes.data.access_token;
 
-    // 2. Execute Stitch GraphQL Payment Initiation Mutation conforming to v2 specs
     const graphqlQuery = {
       query: `
         mutation ClientPaymentInitiationCreate($input: ClientPaymentInitiationInput!) {
@@ -328,10 +321,7 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
       `,
       variables: {
         input: {
-          amount: {
-            quantity: totalAmount.toFixed(2),
-            currency: "ZAR"
-          },
+          amount: { quantity: totalAmount.toFixed(2), currency: "ZAR" },
           payerReference: `COMP-REG-${companyId}`,
           beneficiaryReference: "L3-SAAS-REG",
           redirectUrl: `${baseUrl}/api/payments/stitch-callback?company_id=${companyId}`
@@ -354,21 +344,14 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
     const paymentUrl = paymentData?.paymentInit?.paymentUrl;
     const errors = paymentData?.errors;
 
-    if (errors && errors.length > 0) {
-      console.error('[Stitch GraphQL Execution Errors - Falling back to simulation]:', JSON.stringify(errors));
-      return `${baseUrl}/api/payments/stitch-callback?company_id=${companyId}`;
-    }
-
-    if (!paymentUrl) {
-      console.error('[Stitch GraphQL Error Response - Falling back to simulation]:', JSON.stringify(stitchRes.data));
-      return `${baseUrl}/api/payments/stitch-callback?company_id=${companyId}`;
+    if (errors && errors.length > 0 || !paymentUrl) {
+      return `${baseUrl}/simulate-payment.html?company_id=${companyId}`;
     }
 
     return paymentUrl;
   } catch (err) {
-    console.error('[Stitch Payment Warning - Falling back to test simulation mode]:', err?.response?.data || err.message);
-    // Safe fallback so unapproved business accounts can still test full registration loops
-    return `${process.env.BASE_URL || 'https://loans-1uwj.onrender.com'}/api/payments/stitch-callback?company_id=${companyId}`;
+    console.error('[Stitch Payment Warning - Falling back to simulation]:', err?.response?.data || err.message);
+    return `${process.env.BASE_URL || 'https://loans-1uwj.onrender.com'}/simulate-payment.html?company_id=${companyId}`;
   }
 }
 
@@ -384,7 +367,6 @@ cron.schedule('0 8 * * *', async () => {
     targetDate.setDate(today.getDate() + 3);
     const formattedDueDate = targetDate.toISOString().split('T')[0];
 
-    // 1. Process 3-Day Loan Payment Reminders
     const [dueLoans] = await pool.query(
       `SELECT l.*, b.phone, b.first_name, c.company_name 
        FROM loans l 
@@ -396,17 +378,12 @@ cron.schedule('0 8 * * *', async () => {
 
     for (const loan of dueLoans) {
       const reminderMsg = `Dear ${loan.first_name}, reminder from ${loan.company_name}: Your loan payment of R${loan.monthly_repayment_amount} is due on ${formattedDueDate}. Outstanding balance: R${loan.outstanding_balance}.`;
-      
       await sendMTNSMS(loan.phone, reminderMsg, loan.company_id, 'REMINDER');
-
       try {
         await sendWhatsAppMessage(loan.company_id, loan.phone, reminderMsg);
-      } catch (wErr) {
-        console.log(`[Cron Service] WhatsApp reminder skipped for Loan ID ${loan.id}: Session inactive.`);
-      }
+      } catch (wErr) {}
     }
 
-    // 2. Process Birthday Congratulations
     const [birthdayBorrowers] = await pool.query(
       `SELECT b.*, c.company_name 
        FROM borrowers b 
@@ -416,14 +393,10 @@ cron.schedule('0 8 * * *', async () => {
 
     for (const borrower of birthdayBorrowers) {
       const birthdayMsg = `Happy Birthday ${borrower.first_name}! Wishing you success and prosperity today. - Best regards from all of us at ${borrower.company_name}`;
-      
       await sendMTNSMS(borrower.phone, birthdayMsg, borrower.company_id, 'BIRTHDAY');
-
       try {
         await sendWhatsAppMessage(borrower.company_id, borrower.phone, birthdayMsg);
-      } catch (wErr) {
-        console.log(`[Cron Service] WhatsApp birthday wish skipped for Borrower ID ${borrower.id}: Session inactive.`);
-      }
+      } catch (wErr) {}
     }
   } catch (err) {
     console.error('[Cron Service Error]:', err);
@@ -446,8 +419,8 @@ app.post('/api/companies/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [result] = await pool.query(
-      `INSERT INTO companies (company_name, company_slug, email, phone, address, registration_number, ncri_number, password_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO companies (company_name, company_slug, email, phone, address, registration_number, ncri_number, password_hash, is_registered_paid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE)`,
       [company_name, companySlug, email, phone, address, registration_number, ncri_number, passwordHash]
     );
 
@@ -466,7 +439,7 @@ app.post('/api/companies/register', async (req, res) => {
       company_id: companyId,
       company_slug: companySlug,
       company_url: `${process.env.BASE_URL || 'https://loans-1uwj.onrender.com'}/apply/${companySlug}`,
-      stitch_payment_url: stitchPaymentUrl || `https://stitch.money`
+      stitch_payment_url: stitchPaymentUrl
     });
   } catch (err) {
     console.error('[Registration Route Error]:', err);
@@ -487,6 +460,89 @@ app.get('/api/payments/stitch-callback', async (req, res) => {
   }
 });
 
+app.get('/simulate-payment.html', (req, res) => {
+  const companyId = req.query.company_id;
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Simulated Stitch Checkout - L3 Technologies</title>
+      <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 2.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 420px; text-align: center; }
+        .btn { background: #0d6efd; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 4px; font-size: 1rem; cursor: pointer; width: 100%; margin-top: 1.5rem; }
+        .btn:hover { background: #0b5ed7; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h2>Stitch Secure Checkout (Sandbox Simulation)</h2>
+        <p>Amount Due: <strong>R550.00</strong> (R350 Registration + R200 Monthly)</p>
+        <p style="color: #6c757d; font-size: 0.9rem; margin-top: 1rem;">Complete your subscription payment to unlock full access to your company loan dashboard.</p>
+        <a href="/api/payments/stitch-callback?company_id=${companyId}">
+          <button class="btn">Simulate Successful Payment</button>
+        </a>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// ====================================================================================================
+// SECTION 7: CONDITIONAL SALES AGENT MODULE CONFIGURATION
+// ====================================================================================================
+
+app.post('/api/company/agent-config', authenticateToken, requireAdminRole, async (req, res) => {
+  try {
+    const { agents_module_active, agent_commission_amount } = req.body;
+    
+    await pool.query(
+      `UPDATE companies SET agents_module_active = ?, agent_commission_amount = ? WHERE id = ?`,
+      [agents_module_active ? true : false, agent_commission_amount || 0.00, req.user.companyId]
+    );
+
+    res.json({ 
+      message: 'Sales agent module settings updated successfully.',
+      agents_module_active: !!agents_module_active,
+      agent_commission_amount: agent_commission_amount || 0.00
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/company/public-config/:company_slug', async (req, res) => {
+  try {
+    const { company_slug } = req.params;
+    const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
+
+    const [companies] = await pool.query(
+      `SELECT company_name, company_slug, is_registered_paid, agents_module_active, agent_commission_amount FROM companies WHERE company_slug = ?`,
+      [normalizedSlug]
+    );
+
+    if (companies.length === 0) {
+      return res.status(404).json({ error: 'Company not found.' });
+    }
+
+    const comp = companies[0];
+    res.json({
+      company_name: comp.company_name,
+      company_slug: comp.company_slug,
+      is_registered_paid: comp.is_registered_paid,
+      agents_module_active: comp.agents_module_active,
+      agent_commission_amount: comp.agents_module_active ? comp.agent_commission_amount : 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ====================================================================================================
+// SECTION 8: AUTHENTICATION & LOGIN (WITH PAYMENT GATE CHECK)
+// ====================================================================================================
+
 app.post('/api/auth/company-login', async (req, res) => {
   try {
     const { email_or_id, password, company_slug } = req.body;
@@ -502,6 +558,14 @@ app.post('/api/auth/company-login', async (req, res) => {
       return res.status(404).json({ error: `Credit company with slug identifier '${normalizedSlug}' was not found.` });
     }
     const company = companies[0];
+
+    // 🔒 PAYMENT GATE CHECK: Block login if registration/subscription is not paid
+    if (!company.is_registered_paid) {
+      return res.status(403).json({ 
+        error: 'Account access restricted. Please complete your registration and subscription payment to unlock your dashboard.',
+        payment_url: `${process.env.BASE_URL || 'https://loans-1uwj.onrender.com'}/simulate-payment.html?company_id=${company.id}`
+      });
+    }
 
     const [employees] = await pool.query(
       `SELECT * FROM employees WHERE company_id = ? AND (email = ? OR id_number = ?)`,
@@ -539,8 +603,12 @@ app.post('/api/auth/agent-login', async (req, res) => {
     const { id_number, password, company_slug } = req.body;
     const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [normalizedSlug]);
+    const [companies] = await pool.query(`SELECT id, agents_module_active FROM companies WHERE company_slug = ?`, [normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Credit provider company not found.' });
+
+    if (!companies[0].agents_module_active) {
+      return res.status(403).json({ error: 'Sales agent portal is not enabled by this credit provider.' });
+    }
 
     const [agents] = await pool.query(
       `SELECT * FROM sales_agents WHERE company_id = ? AND id_number = ?`,
@@ -600,40 +668,58 @@ app.post('/api/auth/borrower-login', async (req, res) => {
   }
 });
 
-app.get('/api/employees', authenticateToken, async (req, res) => {
+// ====================================================================================================
+// SECTION 9: UNIQUE COMPANY APPLICATION URL ROUTE
+// ====================================================================================================
+
+app.get('/apply/:company_slug', async (req, res) => {
   try {
-    const [employees] = await pool.query(
-      `SELECT id, id_number, first_name, last_name, email, phone, role, created_at, is_active 
-       FROM employees 
-       WHERE company_id = ?`,
-      [req.user.companyId]
+    const { company_slug } = req.params;
+    const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
+
+    const [companies] = await pool.query(
+      `SELECT id, company_name, company_slug, is_registered_paid, agents_module_active, agent_commission_amount FROM companies WHERE company_slug = ?`, 
+      [normalizedSlug]
     );
-    res.json({ employees });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
-app.post('/api/employees/add', authenticateToken, requireAdminRole, async (req, res) => {
-  try {
-    const { id_number, first_name, last_name, email, phone, password, role } = req.body;
-
-    if (!id_number || !first_name || !last_name || !email || !password) {
-      return res.status(400).json({ error: 'All fields are required to register a staff member.' });
+    if (companies.length === 0) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head><title>Company Not Found</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f8f9fa;color:#333;}</style></head>
+        <body>
+          <h1>Credit Provider Not Found</h1>
+          <p>The loan application link you followed ('${normalizedSlug}') does not exist or has been removed.</p>
+        </body>
+        </html>
+      `);
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
-    await pool.query(
-      `INSERT INTO employees (company_id, id_number, first_name, last_name, email, phone, password_hash, role)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.companyId, id_number, first_name, last_name, email, phone, passwordHash, role || 'STAFF']
-    );
+    const company = companies[0];
 
-    res.json({ message: 'Employee added successfully.' });
+    if (!company.is_registered_paid) {
+      return res.status(403).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head><title>Account Inactive</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f8f9fa;color:#333;}</style></head>
+        <body>
+          <h1>Application Temporarily Unavailable</h1>
+          <p><strong>${company.company_name}</strong> is currently completing its system setup. Please try again shortly.</p>
+        </body>
+        </html>
+      `);
+    }
+
+    res.sendFile(path.join(__dirname, 'public', 'borrower-apply.html'));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[Apply Slug Route Error]:', err);
+    res.status(500).send('Internal server error loading application portal.');
   }
 });
+
+// ====================================================================================================
+// SECTION 10: BORROWER & AGENT APPLICATION ENDPOINTS
+// ====================================================================================================
 
 app.post('/api/agents/apply/:company_slug', upload.fields([
   { name: 'cv_document', maxCount: 1 },
@@ -647,6 +733,10 @@ app.post('/api/agents/apply/:company_slug', upload.fields([
 
     const [companies] = await pool.query(`SELECT id, agents_module_active FROM companies WHERE company_slug = ?`, [normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Credit provider company not found.' });
+
+    if (!companies[0].agents_module_active) {
+      return res.status(403).json({ error: 'Sales agent recruitment is disabled for this credit provider.' });
+    }
 
     const passwordHash = await bcrypt.hash(password, 10);
     const cvPath = req.files['cv_document'] ? req.files['cv_document'][0].path : null;
@@ -663,81 +753,6 @@ app.post('/api/agents/apply/:company_slug', upload.fields([
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
-
-app.patch('/api/agents/:id/status', authenticateToken, async (req, res) => {
-  try {
-    const { status } = req.body;
-    await pool.query(
-      `UPDATE sales_agents SET approval_status = ?, approved_at = NOW() WHERE id = ? AND company_id = ?`,
-      [status, req.params.id, req.user.companyId]
-    );
-    res.json({ message: `Agent status updated to ${status}` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/sms/logs', authenticateToken, async (req, res) => {
-  try {
-    const [logs] = await pool.query(
-      `SELECT recipient_phone, message_text, sms_type, status, created_at 
-       FROM sms_logs 
-       WHERE company_id = ? 
-       ORDER BY created_at DESC LIMIT 100`,
-      [req.user.companyId]
-    );
-    res.json({ sms_logs: logs });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/sms/send', authenticateToken, async (req, res) => {
-  try {
-    const { phone_number, message } = req.body;
-    if (!phone_number || !message) {
-      return res.status(400).json({ error: 'Destination phone number and message text are required.' });
-    }
-
-    const result = await sendMTNSMS(phone_number, message, req.user.companyId, 'MANUAL_DISPATCH');
-    if (!result) throw new Error('MTN SMS Gateway rejected the message request.');
-
-    res.json({ message: 'SMS message dispatched successfully.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/whatsapp/send', authenticateToken, async (req, res) => {
-  try {
-    const { phone_number, message } = req.body;
-    if (!phone_number || !message) {
-      return res.status(400).json({ error: 'Destination phone number and message text are required.' });
-    }
-
-    await sendWhatsAppMessage(req.user.companyId, phone_number, message);
-    res.json({ message: 'WhatsApp message dispatched successfully.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/whatsapp/connect', authenticateToken, async (req, res) => {
-  try {
-    initWhatsAppForCompany(req.user.companyId);
-    res.json({ message: 'WhatsApp engine initialization started. Request QR code endpoint.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/whatsapp/qr', authenticateToken, async (req, res) => {
-  const qr = waQrCodes.get(req.user.companyId);
-  if (!qr) {
-    return res.status(404).json({ message: 'QR code not generated yet or WhatsApp session already authenticated.' });
-  }
-  res.json({ qr_code: qr });
 });
 
 app.post('/api/borrowers/apply/:company_slug', upload.fields([
@@ -795,49 +810,103 @@ app.post('/api/borrowers/apply/:company_slug', upload.fields([
   }
 });
 
-app.get('/api/company/documents', authenticateToken, async (req, res) => {
+// ====================================================================================================
+// SECTION 11: ADDITIONAL SUPPORTING API ENDPOINTS & REPORTS
+// ====================================================================================================
+
+app.get('/api/employees', authenticateToken, async (req, res) => {
   try {
-    const [borrowerDocs] = await pool.query(
-      `SELECT id, id_number, first_name, last_name, id_copy_doc, proof_residence_doc, income_proof_doc, bank_statement_doc, created_at FROM borrowers WHERE company_id = ?`,
+    const [employees] = await pool.query(
+      `SELECT id, id_number, first_name, last_name, email, phone, role, created_at, is_active FROM employees WHERE company_id = ?`,
       [req.user.companyId]
     );
-
-    const [agentDocs] = await pool.query(
-      `SELECT id, id_number, first_name, last_name, cv_document_path, id_copy_path, proof_of_residence_path, created_at FROM sales_agents WHERE company_id = ?`,
-      [req.user.companyId]
-    );
-
-    res.json({ borrower_documents: borrowerDocs, agent_documents: agentDocs });
+    res.json({ employees });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+app.post('/api/employees/add', authenticateToken, requireAdminRole, async (req, res) => {
+  try {
+    const { id_number, first_name, last_name, email, phone, password, role } = req.body;
+    if (!id_number || !first_name || !last_name || !email || !password) {
+      return res.status(400).json({ error: 'All fields are required to register a staff member.' });
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    await pool.query(
+      `INSERT INTO employees (company_id, id_number, first_name, last_name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.companyId, id_number, first_name, last_name, email, phone, passwordHash, role || 'STAFF']
+    );
+    res.json({ message: 'Employee added successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/sms/logs', authenticateToken, async (req, res) => {
+  try {
+    const [logs] = await pool.query(
+      `SELECT recipient_phone, message_text, sms_type, status, created_at FROM sms_logs WHERE company_id = ? ORDER BY created_at DESC LIMIT 100`,
+      [req.user.companyId]
+    );
+    res.json({ sms_logs: logs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/sms/send', authenticateToken, async (req, res) => {
+  try {
+    const { phone_number, message } = req.body;
+    if (!phone_number || !message) return res.status(400).json({ error: 'Destination phone number and message text are required.' });
+    await sendMTNSMS(phone_number, message, req.user.companyId, 'MANUAL_DISPATCH');
+    res.json({ message: 'SMS message dispatched successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/whatsapp/send', authenticateToken, async (req, res) => {
+  try {
+    const { phone_number, message } = req.body;
+    if (!phone_number || !message) return res.status(400).json({ error: 'Destination phone number and message text are required.' });
+    await sendWhatsAppMessage(req.user.companyId, phone_number, message);
+    res.json({ message: 'WhatsApp message dispatched successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/whatsapp/connect', authenticateToken, async (req, res) => {
+  try {
+    initWhatsAppForCompany(req.user.companyId);
+    res.json({ message: 'WhatsApp engine initialization started.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/whatsapp/qr', authenticateToken, async (req, res) => {
+  const qr = waQrCodes.get(req.user.companyId);
+  if (!qr) return res.status(404).json({ message: 'QR code not generated yet or session authenticated.' });
+  res.json({ qr_code: qr });
+});
+
 app.get('/api/reports/ledger', authenticateToken, async (req, res) => {
   try {
     const { date_from, date_to } = req.query;
-
-    let query = `SELECT t.*, b.first_name, b.last_name, b.id_number 
-                 FROM transactions t 
-                 JOIN borrowers b ON t.borrower_id = b.id 
-                 WHERE t.company_id = ?`;
+    let query = `SELECT t.*, b.first_name, b.last_name, b.id_number FROM transactions t JOIN borrowers b ON t.borrower_id = b.id WHERE t.company_id = ?`;
     const params = [req.user.companyId];
-
     if (date_from && date_to) {
       query += ` AND DATE(t.transaction_date) BETWEEN ? AND ?`;
       params.push(date_from, date_to);
     }
-
     query += ` ORDER BY t.transaction_date DESC`;
-
     const [transactions] = await pool.query(query, params);
-
     const crj = transactions.filter(t => t.ledger_type === 'CRJ');
     const cpj = transactions.filter(t => t.ledger_type === 'CPJ');
-
     const totalCRJ = crj.reduce((sum, t) => sum + parseFloat(t.amount), 0);
     const totalCPJ = cpj.reduce((sum, t) => sum + parseFloat(t.amount), 0);
-
     res.json({
       summary: { total_cash_received: totalCRJ, total_cash_paid_out: totalCPJ, net_cash_flow: totalCRJ - totalCPJ },
       crj_ledger: crj,
@@ -852,35 +921,26 @@ app.get('/api/reports/ledger', authenticateToken, async (req, res) => {
 app.post('/api/transactions/payment', authenticateToken, async (req, res) => {
   try {
     const { loan_id, amount, reference } = req.body;
-
     const [loans] = await pool.query(
       `SELECT l.*, b.phone, b.first_name FROM loans l JOIN borrowers b ON l.borrower_id = b.id WHERE l.id = ? AND l.company_id = ?`, 
       [loan_id, req.user.companyId]
     );
     if (loans.length === 0) return res.status(404).json({ error: 'Loan account not found.' });
-
     const loan = loans[0];
     const newBalance = Math.max(0, parseFloat(loan.outstanding_balance) - parseFloat(amount));
     const newStatus = newBalance === 0 ? 'SETTLED' : loan.status;
 
     await pool.query(`UPDATE loans SET outstanding_balance = ?, status = ? WHERE id = ?`, [newBalance, newStatus, loan_id]);
-
     await pool.query(
-      `INSERT INTO transactions (company_id, loan_id, borrower_id, amount, transaction_type, reference, balance_after, ledger_type)
-       VALUES (?, ?, ?, ?, 'REPAYMENT', ?, ?, 'CRJ')`,
+      `INSERT INTO transactions (company_id, loan_id, borrower_id, amount, transaction_type, reference, balance_after, ledger_type) VALUES (?, ?, ?, ?, 'REPAYMENT', ?, ?, 'CRJ')`,
       [req.user.companyId, loan_id, loan.borrower_id, amount, reference || `PAY-${Date.now()}`, newBalance]
     );
-
-    const smsMessage = `Payment Received! Dear ${loan.first_name}, thank you for your payment of R${amount}. Your remaining loan balance is R${newBalance.toFixed(2)}.`;
+    const smsMessage = `Payment Received! Dear ${loan.first_name}, thank you for your payment of R${amount}. Remaining balance: R${newBalance.toFixed(2)}.`;
     await sendMTNSMS(loan.phone, smsMessage, req.user.companyId, 'PAYMENT_RECEIPT');
-
     try {
       await sendWhatsAppMessage(req.user.companyId, loan.phone, smsMessage);
-    } catch (wErr) {
-      console.log('[Payment Receipt] WhatsApp notification skipped: session inactive.');
-    }
-
-    res.json({ message: 'Payment recorded and notification dispatched successfully.', remaining_balance: newBalance });
+    } catch (wErr) {}
+    res.json({ message: 'Payment recorded successfully.', remaining_balance: newBalance });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -892,7 +952,6 @@ app.get('/api/borrowers/:id/download-pdf', authenticateToken, async (req, res) =
       `SELECT b.*, c.company_name FROM borrowers b JOIN companies c ON b.company_id = c.id WHERE b.id = ? AND b.company_id = ?`,
       [req.params.id, req.user.companyId]
     );
-
     if (borrowers.length === 0) return res.status(404).json({ error: 'Borrower record not found' });
     const b = borrowers[0];
 
@@ -903,19 +962,14 @@ app.get('/api/borrowers/:id/download-pdf', authenticateToken, async (req, res) =
 
     doc.fontSize(20).text(`${b.company_name}`, { align: 'center' });
     doc.fontSize(14).text('CREDIT APPLICATION & NCA CONSENT FORM', { align: 'center' }).moveDown();
-
     doc.fontSize(10).text(`Applicant Name: ${b.first_name} ${b.last_name}`);
     doc.text(`ID Number: ${b.id_number}`);
     doc.text(`Email: ${b.email} | Phone: ${b.phone}`);
     doc.text(`Residential Address: ${b.residential_address}`);
     doc.text(`Employment Status: ${b.employment_status} | Net Income: R${b.monthly_net_income}`).moveDown();
-
     doc.text('CREDIT BUREAU CONSENT & DECLARATION', { underline: true });
     doc.text('I hereby grant full consent to the credit provider to perform credit checks with any registered South African credit bureau, verify my bank details, and process my personal information in compliance with POPIA and NCA guidelines.').moveDown(2);
-
     doc.text('Client Signature: _______________________      Date: ____________');
-    doc.text('Client Initials: [ _______ ]');
-
     doc.end();
 
     stream.on('finish', () => {
@@ -930,6 +984,5 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`====================================================================================`);
   console.log(`L3 Technologies Loan SaaS Backend active on Port: ${PORT}`);
-  console.log(`Database Host connected to pool.`);
   console.log(`====================================================================================`);
 });
