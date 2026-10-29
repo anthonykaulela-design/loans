@@ -51,7 +51,7 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Access token required' });
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET || 'L3Tech_Secret_Key', (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid or expired token' });
     req.user = user;
     next();
@@ -111,24 +111,6 @@ async function sendMTNSMS(phoneNumber, messageText, companyId, smsType) {
 async function initializeStitchDebitOrder(companyId, registrationFee = 350, monthlyFee = 200) {
   try {
     const totalAmount = registrationFee + monthlyFee;
-    const graphqlQuery = {
-      query: `
-        mutation CreateDebitOrderMandate($amount: String!, $reference: String!) {
-          clientPaymentInitiation(input: {
-            amount: { quantity: $amount, currency: ZAR },
-            payerReference: $reference,
-            beneficiaryReference: "L3-SAAS-REG"
-          }) {
-            paymentUrl
-            id
-          }
-        }
-      `,
-      variables: {
-        amount: totalAmount.toFixed(2),
-        reference: `COMP-REG-${companyId}`
-      }
-    };
 
     // OAuth call for Stitch Token
     const authRes = await axios.post('https://connect.stitch.money/oauth/token', 
@@ -142,14 +124,44 @@ async function initializeStitchDebitOrder(companyId, registrationFee = 350, mont
 
     const stitchToken = authRes.data.access_token;
 
-    const stitchRes = await axios.post(process.env.STITCH_API_URL, graphqlQuery, {
-      headers: {
-        'Authorization': `Bearer ${stitchToken}`,
-        'Content-Type': 'application/json'
+    const graphqlQuery = {
+      query: `
+        mutation CreatePaymentRequest($amount: MoneyInput!, $payerReference: String!, $beneficiaryReference: String!) {
+          clientPaymentInitiation(input: {
+            amount: $amount,
+            payerReference: $payerReference,
+            beneficiaryReference: $beneficiaryReference
+          }) {
+            paymentUrl
+            id
+          }
+        }
+      `,
+      variables: {
+        amount: { quantity: totalAmount.toFixed(2), currency: "ZAR" },
+        payerReference: `COMP-REG-${companyId}`,
+        beneficiaryReference: "L3-SAAS-REG"
       }
-    });
+    };
 
-    return stitchRes.data?.data?.clientPaymentInitiation;
+    const stitchRes = await axios.post(
+      process.env.STITCH_API_URL || 'https://api.stitch.money/graphql',
+      graphqlQuery,
+      {
+        headers: {
+          'Authorization': `Bearer ${stitchToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const paymentUrl = stitchRes.data?.data?.clientPaymentInitiation?.paymentUrl;
+    if (!paymentUrl) {
+      console.error('Stitch GraphQL Error Response:', JSON.stringify(stitchRes.data));
+      return null;
+    }
+
+    return paymentUrl;
   } catch (err) {
     console.error('Stitch Debit Order Error:', err?.response?.data || err.message);
     return null;
@@ -211,7 +223,6 @@ cron.schedule('0 8 * * *', async () => {
     }
 
     // 2. Birthday Wishes
-    const monthDayStr = `-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const [birthdayBorrowers] = await pool.query(
       `SELECT b.*, c.company_name FROM borrowers b JOIN companies c ON b.company_id = c.id WHERE DATE_FORMAT(b.dob, '%m-%d') = DATE_FORMAT(NOW(), '%m-%d')`
     );
@@ -232,7 +243,7 @@ app.post('/api/companies/register', async (req, res) => {
   try {
     const { company_name, email, phone, address, registration_number, ncri_number, password } = req.body;
 
-    const companySlug = slugify(company_name, { lower: true, strict: true });
+    const companySlug = slugify(company_name, { lower: true, strict: true, trim: true });
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [result] = await pool.query(
@@ -251,15 +262,17 @@ app.post('/api/companies/register', async (req, res) => {
     );
 
     // Initialize Stitch payment redirect for R350 registration + R200 month fee (R550 total)
-    const stitchPayment = await initializeStitchDebitOrder(companyId, 350, 200);
+    const stitchPaymentUrl = await initializeStitchDebitOrder(companyId, 350, 200);
 
     res.status(201).json({
       message: 'Company registered successfully. Complete payment to activate account.',
       company_id: companyId,
+      company_slug: companySlug,
       company_url: `${process.env.BASE_URL}/apply/${companySlug}`,
-      stitch_payment_url: stitchPayment?.paymentUrl || `${process.env.BASE_URL}/login?status=paid`
+      stitch_payment_url: stitchPaymentUrl || `https://stitch.money`
     });
   } catch (err) {
+    console.error('Registration Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -271,13 +284,14 @@ app.get('/api/payments/stitch-callback', async (req, res) => {
   res.redirect(`${process.env.BASE_URL}/login?payment=success`);
 });
 
-// Admin & Staff Authentication Login
+// Admin & Staff Authentication Login (with slug normalization fix)
 app.post('/api/auth/company-login', async (req, res) => {
   try {
     const { email_or_id, password, company_slug } = req.body;
+    const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    const [companies] = await pool.query(`SELECT * FROM companies WHERE company_slug = ?`, [company_slug]);
-    if (companies.length === 0) return res.status(404).json({ error: 'Company not found' });
+    const [companies] = await pool.query(`SELECT * FROM companies WHERE company_slug = ?`, [normalizedSlug]);
+    if (companies.length === 0) return res.status(404).json({ error: `Company with slug '${normalizedSlug}' not found` });
     const company = companies[0];
 
     // Check Employee / Admin credentials
@@ -294,7 +308,7 @@ app.post('/api/auth/company-login', async (req, res) => {
 
     const token = jwt.sign(
       { userId: emp.id, role: emp.role, companyId: company.id, userType: 'EMPLOYEE' },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'L3Tech_Secret_Key',
       { expiresIn: '24h' }
     );
 
@@ -335,9 +349,10 @@ app.post('/api/agents/apply/:company_slug', upload.fields([
 ]), async (req, res) => {
   try {
     const { company_slug } = req.params;
+    const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
     const { id_number, first_name, last_name, email, phone, password } = req.body;
 
-    const [companies] = await pool.query(`SELECT id, agents_module_active FROM companies WHERE company_slug = ?`, [company_slug]);
+    const [companies] = await pool.query(`SELECT id, agents_module_active FROM companies WHERE company_slug = ?`, [normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Company not found' });
     if (!companies[0].agents_module_active) return res.status(403).json({ error: 'Agent applications are disabled for this company.' });
 
@@ -362,8 +377,9 @@ app.post('/api/agents/apply/:company_slug', upload.fields([
 app.post('/api/auth/agent-login', async (req, res) => {
   try {
     const { id_number, password, company_slug } = req.body;
+    const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [company_slug]);
+    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Company not found' });
 
     const [agents] = await pool.query(
@@ -383,7 +399,7 @@ app.post('/api/auth/agent-login', async (req, res) => {
 
     const token = jwt.sign(
       { userId: agent.id, companyId: companies[0].id, userType: 'AGENT' },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'L3Tech_Secret_Key',
       { expiresIn: '24h' }
     );
 
@@ -431,6 +447,7 @@ app.post('/api/borrowers/apply/:company_slug', upload.fields([
 ]), async (req, res) => {
   try {
     const { company_slug } = req.params;
+    const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
     const {
       id_number, first_name, last_name, email, phone, dob, residential_address,
       proof_of_address_type, employment_status, employer_name, monthly_gross_income,
@@ -443,7 +460,7 @@ app.post('/api/borrowers/apply/:company_slug', upload.fields([
       return res.status(400).json({ error: 'Explicit consent for credit record check is mandatory under NCA.' });
     }
 
-    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [company_slug]);
+    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Company not found' });
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -482,8 +499,9 @@ app.post('/api/borrowers/apply/:company_slug', upload.fields([
 app.post('/api/auth/borrower-login', async (req, res) => {
   try {
     const { id_number, password, company_slug } = req.body;
+    const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [company_slug]);
+    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Company not found' });
 
     const [borrowers] = await pool.query(
@@ -499,7 +517,7 @@ app.post('/api/auth/borrower-login', async (req, res) => {
 
     const token = jwt.sign(
       { userId: b.id, companyId: companies[0].id, userType: 'BORROWER' },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'L3Tech_Secret_Key',
       { expiresIn: '24h' }
     );
 
