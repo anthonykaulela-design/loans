@@ -721,6 +721,41 @@ app.get('/api/whatsapp/qr', authenticateToken, async (req, res) => {
   res.json({ qr_code: qr });
 });
 
+// ==========================================
+// ADDITIONAL ROUTE: GET ALL EMPLOYEES
+// ==========================================
+app.get('/api/employees', authenticateToken, async (req, res) => {
+  try {
+    const [employees] = await pool.query(
+      `SELECT id, id_number, first_name, last_name, email, phone, role, created_at, is_active 
+       FROM employees 
+       WHERE company_id = ?`,
+      [req.user.companyId]
+    );
+    res.json({ employees });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// ADDITIONAL ROUTE: GET SMS LOGS
+// ==========================================
+app.get('/api/sms/logs', authenticateToken, async (req, res) => {
+  try {
+    const [logs] = await pool.query(
+      `SELECT recipient_phone, message_text, sms_type, status, created_at 
+       FROM sms_logs 
+       WHERE company_id = ? 
+       ORDER BY created_at DESC LIMIT 100`,
+      [req.user.companyId]
+    );
+    res.json({ sms_logs: logs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/whatsapp/connect', authenticateToken, async (req, res) => {
   initWhatsAppForCompany(req.user.companyId);
   res.json({ message: 'WhatsApp instance initialization started. Fetch QR code.' });
