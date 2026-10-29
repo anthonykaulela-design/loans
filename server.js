@@ -101,6 +101,10 @@ const requireAdminRole = (req, res, next) => {
   next();
 };
 
+// Aliases for admin middleware route compatibility
+const verifyToken = authenticateToken;
+const verifyAdmin = requireAdminRole;
+
 // ====================================================================================================
 // SECTION 3: OUTBOUND COMMUNICATION ENGINES (MTN SMS GATEWAY & WHATSAPP BAILEYS)
 // ====================================================================================================
@@ -1018,8 +1022,6 @@ app.get('/api/borrowers/:id/download-pdf', authenticateToken, async (req, res) =
 // ==========================================
 // 3. PROVISION / REGISTER L3 TECHNOLOGIES
 // ==========================================
-const bcrypt = require('bcrypt');
-
 app.post('/api/admin/provision-l3-technologies', async (req, res) => {
   try {
     const companyName = 'L3 Technologies';
@@ -1027,7 +1029,7 @@ app.post('/api/admin/provision-l3-technologies', async (req, res) => {
     const email = 'Tebogoanthony455@gmail.com';
     const plainPassword = 'Tebogo1234@';
     
-    // Hash password securely
+    // Hash password securely using the existing bcrypt instance
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(plainPassword, saltRounds);
 
