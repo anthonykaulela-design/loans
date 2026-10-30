@@ -616,7 +616,16 @@ app.post('/api/auth/company-login', async (req, res) => {
     }
     const emp = employees[0];
 
-    const isMatch = await bcrypt.compare(password, emp.password_hash);
+    // FLEXIBLE PASSWORD VERIFICATION (Supports both plain-text and hashed passwords)
+    let isMatch = (password === emp.password_hash);
+    if (!isMatch && emp.password_hash && emp.password_hash.startsWith('$2')) {
+      try {
+        isMatch = await bcrypt.compare(password, emp.password_hash);
+      } catch (bErr) {
+        isMatch = false;
+      }
+    }
+
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid password provided.' });
     }
@@ -661,7 +670,10 @@ app.post('/api/auth/agent-login', async (req, res) => {
       return res.status(403).json({ error: `Login blocked. Agent application status is: ${agent.approval_status}` });
     }
 
-    const isMatch = await bcrypt.compare(password, agent.password_hash);
+    let isMatch = (password === agent.password_hash);
+    if (!isMatch && agent.password_hash && agent.password_hash.startsWith('$2')) {
+      isMatch = await bcrypt.compare(password, agent.password_hash);
+    }
     if (!isMatch) return res.status(401).json({ error: 'Invalid credentials provided.' });
 
     const token = jwt.sign(
@@ -692,7 +704,10 @@ app.post('/api/auth/borrower-login', async (req, res) => {
     if (borrowers.length === 0) return res.status(401).json({ error: 'Borrower record not found.' });
     const b = borrowers[0];
 
-    const isMatch = await bcrypt.compare(password, b.password_hash);
+    let isMatch = (password === b.password_hash);
+    if (!isMatch && b.password_hash && b.password_hash.startsWith('$2')) {
+      isMatch = await bcrypt.compare(password, b.password_hash);
+    }
     if (!isMatch) return res.status(401).json({ error: 'Invalid credentials provided.' });
 
     const token = jwt.sign(
