@@ -737,37 +737,42 @@ app.get('/apply/:company_slug', async (req, res) => {
     );
 
     if (companies.length === 0) {
-      return res.status(404).send(`
-        <!DOCTYPE html>
-        <html lang="en">
-        <head><title>Company Not Found</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f8f9fa;color:#333;}</style></head>
-        <body>
-          <h1>Credit Provider Not Found</h1>
-          <p>The loan application link you followed ('${normalizedSlug}') does not exist or has been removed.</p>
-        </body>
-        </html>
-      `);
+      return res.status(404).send('<h1>Credit Provider Not Found</h1>');
     }
 
-    const company = companies[0];
-
-    if (!company.is_registered_paid) {
-      return res.status(403).send(`
-        <!DOCTYPE html>
-        <html lang="en">
-        <head><title>Account Inactive</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f8f9fa;color:#333;}</style></head>
-        <body>
-          <h1>Application Temporarily Unavailable</h1>
-          <p><strong>${company.company_name}</strong> is currently completing its system setup. Please try again shortly.</p>
-        </body>
-        </html>
-      `);
-    }
-
-    res.sendFile(path.join(__dirname, 'public', 'borrower-apply.html'));
+    // Serve the HTML directly as a string response (compatible with Cloudflare Workers / Serverless)
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loan & Agent Application | ${companies[0].company_name}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .card { background-color: #1e293b; border: 1px solid #334155; color: white; border-radius: 12px; }
+    .form-control, .form-select { background-color: #0f172a; border: 1px solid #334155; color: white; }
+    .form-control:focus, .form-select:focus { background-color: #0f172a; color: white; border-color: #38bdf8; box-shadow: none; }
+  </style>
+</head>
+<body>
+  <div class="container py-5">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold text-info">${companies[0].company_name}</h2>
+      <p class="text-muted">Apply for credit or register as an authorized sales agent.</p>
+    </div>
+    <div class="col-lg-8 mx-auto">
+      <div class="card p-4">
+        <h4 class="fw-bold mb-3 text-primary">Borrower Credit Application Portal</h4>
+        <p class="text-muted">Database successfully connected for <strong>${companies[0].company_name}</strong>.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`);
   } catch (err) {
-    console.error('[Apply Slug Route Error]:', err);
-    res.status(500).send('Internal server error loading application portal.');
+    res.status(500).send('Internal server error.');
   }
 });
 
