@@ -731,48 +731,183 @@ app.get('/apply/:company_slug', async (req, res) => {
     const { company_slug } = req.params;
     const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    const [companies] = await pool.query(
-      `SELECT id, company_name, company_slug, is_registered_paid, agents_module_active, agent_commission_amount FROM companies WHERE company_slug = ?`, 
-      [normalizedSlug]
+    // Flexible query to check both 'company_slug' and 'slug' columns in MySQL
+    let [companies] = await pool.query(
+      `SELECT id, company_name, COALESCE(company_slug, slug) as slug, is_registered_paid, agents_module_active, agent_commission_amount 
+       FROM companies 
+       WHERE company_slug = ? OR slug = ?`, 
+      [normalizedSlug, normalizedSlug]
     );
 
+    // If no company found by slug, check if they passed an ID or name as fallback
     if (companies.length === 0) {
-      return res.status(404).send('<h1>Credit Provider Not Found</h1>');
+      [companies] = await pool.query(
+        `SELECT id, company_name, COALESCE(company_slug, slug) as slug, is_registered_paid, agents_module_active, agent_commission_amount 
+         FROM companies 
+         WHERE id = ? OR company_name LIKE ?`, 
+        [company_slug, `%${company_slug}%`]
+      );
     }
 
-    // Serve the HTML directly as a string response (compatible with Cloudflare Workers / Serverless)
+    if (companies.length === 0) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head><title>Company Not Found</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#0f172a;color:#f8fafc;}</style></head>
+        <body>
+          <h1>Credit Provider Not Found</h1>
+          <p>The unique application link ('${normalizedSlug}') does not match any registered credit provider in our database.</p>
+        </body>
+        </html>
+      `);
+    }
+
+    const company = companies[0];
+
+    // Serve the complete unique application page for this specific company
     res.setHeader('Content-Type', 'text/html');
     res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Loan & Agent Application | ${companies[0].company_name}</title>
+  <title>Loan & Agent Application | ${company.company_name}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
     .card { background-color: #1e293b; border: 1px solid #334155; color: white; border-radius: 12px; }
     .form-control, .form-select { background-color: #0f172a; border: 1px solid #334155; color: white; }
     .form-control:focus, .form-select:focus { background-color: #0f172a; color: white; border-color: #38bdf8; box-shadow: none; }
+    .nav-pills .nav-link { color: #94a3b8; }
+    .nav-pills .nav-link.active { background-color: #0284c7; color: white; }
   </style>
 </head>
 <body>
   <div class="container py-5">
     <div class="text-center mb-4">
-      <h2 class="fw-bold text-info">${companies[0].company_name}</h2>
-      <p class="text-muted">Apply for credit or register as an authorized sales agent.</p>
+      <h2 class="fw-bold text-info" id="providerName">${company.company_name}</h2>
+      <p class="text-muted">Secure Online Credit Application & Sales Agent Portal</p>
     </div>
+
     <div class="col-lg-8 mx-auto">
-      <div class="card p-4">
-        <h4 class="fw-bold mb-3 text-primary">Borrower Credit Application Portal</h4>
-        <p class="text-muted">Database successfully connected for <strong>${companies[0].company_name}</strong>.</p>
+      <ul class="nav nav-pills nav-justified mb-4" id="pills-tab" role="tablist">
+        <li class="nav-item">
+          <button class="nav-link active fw-bold" id="borrower-tab" data-bs-toggle="pill" data-bs-target="#borrower-apply">Apply for a Loan</button>
+        </li>
+        ${company.agents_module_active ? `
+        <li class="nav-item" id="agentTabContainer">
+          <button class="nav-link fw-bold" id="agent-tab" data-bs-toggle="pill" data-bs-target="#agent-apply">Join as Sales Agent</button>
+        </li>` : ''}
+      </ul>
+
+      <div class="tab-content" id="pills-tabContent">
+        <!-- BORROWER APPLICATION FORM -->
+        <div class="tab-pane fade show active" id="borrower-apply">
+          <div class="card p-4">
+            <h4 class="fw-bold mb-3 text-primary">Borrower Credit Application</h4>
+            <form id="borrowerForm" enctype="multipart/form-data">
+              <div class="row g-3 mb-3">
+                <div class="col-md-6"><label class="form-label">First Name</label><input type="text" name="first_name" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Last Name</label><input type="text" name="last_name" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">SA ID Number</label><input type="text" name="id_number" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Date of Birth</label><input type="date" name="dob" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Email Address</label><input type="email" name="email" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Phone Number</label><input type="text" name="phone" class="form-control" required></div>
+              </div>
+
+              <div class="mb-3"><label class="form-label">Residential Address</label><input type="text" name="residential_address" class="form-control" required></div>
+
+              <div class="row g-3 mb-3">
+                <div class="col-md-6"><label class="form-label">Employment Status</label><select name="employment_status" class="form-select" required><option value="EMPLOYED">Employed</option><option value="SELF_EMPLOYED">Self-Employed</option></select></div>
+                <div class="col-md-6"><label class="form-label">Monthly Net Income (ZAR)</label><input type="number" step="0.01" name="monthly_net_income" class="form-control" required></div>
+              </div>
+
+              <div class="row g-3 mb-3">
+                <div class="col-md-6"><label class="form-label">Upload ID Copy</label><input type="file" name="id_copy_doc" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Upload Bank Statement</label><input type="file" name="bank_statement_doc" class="form-control" required></div>
+              </div>
+
+              <div class="mb-3"><label class="form-label">Account Password (For Portal Login)</label><input type="password" name="password" class="form-control" required></div>
+
+              <div class="form-check mb-4">
+                <input class="form-check-input" type="checkbox" name="credit_check_consent" value="true" required id="consentCheck">
+                <label class="form-check-label text-muted" for="consentCheck">I grant explicit consent for NCA affordability and credit checks.</label>
+              </div>
+
+              <button type="submit" class="btn btn-primary w-100 fw-bold">Submit Loan Application</button>
+            </form>
+          </div>
+        </div>
+
+        ${company.agents_module_active ? `
+        <!-- AGENT APPLICATION FORM -->
+        <div class="tab-pane fade" id="agent-apply">
+          <div class="card p-4">
+            <h4 class="fw-bold mb-2 text-info">Sales Agent Registration</h4>
+            <p class="text-muted small mb-3">Earn R${parseFloat(company.agent_commission_amount || 0).toFixed(2)} commission per approved loan!</p>
+            <form id="agentForm" enctype="multipart/form-data">
+              <div class="row g-3 mb-3">
+                <div class="col-md-6"><label class="form-label">First Name</label><input type="text" name="first_name" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Last Name</label><input type="text" name="last_name" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">ID Number</label><input type="text" name="id_number" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Phone Number</label><input type="text" name="phone" class="form-control" required></div>
+                <div class="col-md-12"><label class="form-label">Email Address</label><input type="email" name="email" class="form-control" required></div>
+              </div>
+
+              <div class="mb-3"><label class="form-label">Upload CV / ID Copy</label><input type="file" name="id_copy" class="form-control" required></div>
+              <div class="mb-3"><label class="form-label">Account Password</label><input type="password" name="password" class="form-control" required></div>
+
+              <button type="submit" class="btn btn-info text-white w-100 fw-bold">Submit Agent Application</button>
+            </form>
+          </div>
+        </div>` : ''}
       </div>
     </div>
   </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const activeSlug = "${company.slug || normalizedSlug}";
+
+    document.getElementById('borrowerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      try {
+        const res = await fetch(\`/api/borrowers/apply/\${activeSlug}\`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (res.ok) {
+          alert('Loan application submitted successfully! You can now log into your borrower dashboard.');
+          window.location.href = '/borrower-login.html';
+        } else {
+          alert(data.error || 'Submission failed.');
+        }
+      } catch (err) { alert('Network or submission error.'); }
+    });
+
+    const agentForm = document.getElementById('agentForm');
+    if (agentForm) {
+      agentForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        try {
+          const res = await fetch(\`/api/agents/apply/\${activeSlug}\`, { method: 'POST', body: formData });
+          const data = await res.json();
+          if (res.ok) {
+            alert('Sales agent application submitted successfully! Awaiting provider approval.');
+            e.target.reset();
+          } else {
+            alert(data.error || 'Submission failed.');
+          }
+        } catch (err) { alert('Network or submission error.'); }
+      });
+    }
+  </script>
 </body>
 </html>`);
+
   } catch (err) {
-    res.status(500).send('Internal server error.');
+    console.error('[Apply Slug Route Error]:', err);
+    res.status(500).send('Internal server error loading application portal.');
   }
 });
 
