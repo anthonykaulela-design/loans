@@ -5,7 +5,7 @@
  * Architecture: Node.js, Express.js, MySQL (Connection Pool), JWT, Bcrypt.js, Baileys WhatsApp Web API,
  * MTN Outbound SMS Gateway, Stitch Payment Initiation GraphQL API, PDFKit, Node-Cron Engine.
  * 
- * Version: 3.6.0 Enterprise Release
+ * Version: 3.6.1 Enterprise Release
  * Contact / Author: Tebogo Anthony Kaulela (L3 Technologies)
  * Direct Email: anthonykaulela@gmail.com | Cell: 0715694131
  * Backend Host: https://loans-1uwj.onrender.com
@@ -101,7 +101,6 @@ const requireAdminRole = (req, res, next) => {
   next();
 };
 
-// Aliases for admin middleware route compatibility
 const verifyToken = authenticateToken;
 const verifyAdmin = requireAdminRole;
 
@@ -423,9 +422,9 @@ app.post('/api/companies/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [result] = await pool.query(
-      `INSERT INTO companies (company_name, company_slug, email, phone, address, registration_number, ncri_number, password_hash, is_registered_paid)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE)`,
-      [company_name, companySlug, email, phone, address, registration_number, ncri_number, passwordHash]
+      `INSERT INTO companies (company_name, company_slug, slug, email, phone, address, registration_number, ncri_number, password_hash, is_registered_paid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)`,
+      [company_name, companySlug, companySlug, email, phone, address, registration_number, ncri_number, passwordHash]
     );
 
     const companyId = result.insertId;
@@ -455,7 +454,7 @@ app.get('/api/payments/stitch-callback', async (req, res) => {
   try {
     const { company_id } = req.query;
     await pool.query(
-      `UPDATE companies SET is_registered_paid = TRUE, stitch_subscription_status = 'ACTIVE' WHERE id = ?`, 
+      `UPDATE companies SET is_registered_paid = TRUE, stitch_subscription_status = 'ACTIVE', subscription_status = 'ACTIVE' WHERE id = ?`, 
       [company_id]
     );
     res.redirect(`${process.env.BASE_URL || 'https://loans-1uwj.onrender.com'}/company-login.html?payment=success`);
@@ -464,13 +463,10 @@ app.get('/api/payments/stitch-callback', async (req, res) => {
   }
 });
 
-// ==========================================
-// 1. VIEW ALL PENDING ACCOUNTS / COMPANIES
-// ==========================================
 app.get('/api/admin/pending-accounts', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const [pending] = await pool.query(
-      "SELECT id, company_name, email, slug, created_at, subscription_status FROM companies WHERE subscription_status = 'PENDING' OR subscription_status IS NULL"
+      "SELECT id, company_name, email, COALESCE(company_slug, slug) as slug, created_at, subscription_status FROM companies WHERE subscription_status = 'PENDING' OR subscription_status IS NULL"
     );
     res.json({ success: true, pending_accounts: pending });
   } catch (err) {
@@ -479,9 +475,6 @@ app.get('/api/admin/pending-accounts', verifyToken, verifyAdmin, async (req, res
   }
 });
 
-// ==========================================
-// 2. DELETE ALL PENDING ACCOUNTS
-// ==========================================
 app.delete('/api/admin/delete-pending-accounts', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const [result] = await pool.query(
@@ -496,7 +489,6 @@ app.delete('/api/admin/delete-pending-accounts', verifyToken, verifyAdmin, async
     res.status(500).json({ error: 'Database error deleting pending accounts' });
   }
 });
-
 
 app.get('/simulate-payment.html', (req, res) => {
   const companyId = req.query.company_id;
@@ -556,8 +548,8 @@ app.get('/api/company/public-config/:company_slug', async (req, res) => {
     const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
     const [companies] = await pool.query(
-      `SELECT company_name, company_slug, is_registered_paid, agents_module_active, agent_commission_amount FROM companies WHERE company_slug = ?`,
-      [normalizedSlug]
+      `SELECT company_name, COALESCE(company_slug, slug) as company_slug, is_registered_paid, agents_module_active, agent_commission_amount FROM companies WHERE company_slug = ? OR slug = ?`,
+      [normalizedSlug, normalizedSlug]
     );
 
     if (companies.length === 0) {
@@ -577,7 +569,6 @@ app.get('/api/company/public-config/:company_slug', async (req, res) => {
   }
 });
 
-
 // ====================================================================================================
 // SECTION 8: AUTHENTICATION & LOGIN (WITH PAYMENT GATE CHECK)
 // ====================================================================================================
@@ -592,13 +583,12 @@ app.post('/api/auth/company-login', async (req, res) => {
 
     const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    const [companies] = await pool.query(`SELECT * FROM companies WHERE company_slug = ?`, [normalizedSlug]);
+    const [companies] = await pool.query(`SELECT * FROM companies WHERE company_slug = ? OR slug = ?`, [normalizedSlug, normalizedSlug]);
     if (companies.length === 0) {
       return res.status(404).json({ error: `Credit company with slug identifier '${normalizedSlug}' was not found.` });
     }
     const company = companies[0];
 
-    // 🔒 PAYMENT GATE CHECK: Block login if registration/subscription is not paid
     if (!company.is_registered_paid) {
       return res.status(403).json({ 
         error: 'Account access restricted. Please complete your registration and subscription payment to unlock your dashboard.',
@@ -616,7 +606,6 @@ app.post('/api/auth/company-login', async (req, res) => {
     }
     const emp = employees[0];
 
-    // FLEXIBLE PASSWORD VERIFICATION (Supports both plain-text and hashed passwords)
     let isMatch = (password === emp.password_hash);
     if (!isMatch && emp.password_hash && emp.password_hash.startsWith('$2')) {
       try {
@@ -639,7 +628,7 @@ app.post('/api/auth/company-login', async (req, res) => {
     res.json({ 
       token, 
       role: emp.role, 
-      company: { id: company.id, name: company.company_name, slug: company.company_slug } 
+      company: { id: company.id, name: company.company_name, slug: company.company_slug || company.slug } 
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -651,7 +640,7 @@ app.post('/api/auth/agent-login', async (req, res) => {
     const { id_number, password, company_slug } = req.body;
     const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    const [companies] = await pool.query(`SELECT id, agents_module_active FROM companies WHERE company_slug = ?`, [normalizedSlug]);
+    const [companies] = await pool.query(`SELECT id, agents_module_active FROM companies WHERE company_slug = ? OR slug = ?`, [normalizedSlug, normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Credit provider company not found.' });
 
     if (!companies[0].agents_module_active) {
@@ -693,7 +682,7 @@ app.post('/api/auth/borrower-login', async (req, res) => {
     const { id_number, password, company_slug } = req.body;
     const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [normalizedSlug]);
+    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ? OR slug = ?`, [normalizedSlug, normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Credit provider company not found.' });
 
     const [borrowers] = await pool.query(
@@ -731,7 +720,6 @@ app.get('/apply/:company_slug', async (req, res) => {
     const { company_slug } = req.params;
     const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
 
-    // Flexible query to check both 'company_slug' and 'slug' columns in MySQL
     let [companies] = await pool.query(
       `SELECT id, company_name, COALESCE(company_slug, slug) as slug, is_registered_paid, agents_module_active, agent_commission_amount 
        FROM companies 
@@ -739,7 +727,6 @@ app.get('/apply/:company_slug', async (req, res) => {
       [normalizedSlug, normalizedSlug]
     );
 
-    // If no company found by slug, check if they passed an ID or name as fallback
     if (companies.length === 0) {
       [companies] = await pool.query(
         `SELECT id, company_name, COALESCE(company_slug, slug) as slug, is_registered_paid, agents_module_active, agent_commission_amount 
@@ -764,7 +751,6 @@ app.get('/apply/:company_slug', async (req, res) => {
 
     const company = companies[0];
 
-    // Serve the complete unique application page for this specific company
     res.setHeader('Content-Type', 'text/html');
     res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -925,7 +911,7 @@ app.post('/api/agents/apply/:company_slug', upload.fields([
     const normalizedSlug = slugify(company_slug.trim(), { lower: true, strict: true });
     const { id_number, first_name, last_name, email, phone, password } = req.body;
 
-    const [companies] = await pool.query(`SELECT id, agents_module_active FROM companies WHERE company_slug = ?`, [normalizedSlug]);
+    const [companies] = await pool.query(`SELECT id, agents_module_active FROM companies WHERE company_slug = ? OR slug = ?`, [normalizedSlug, normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Credit provider company not found.' });
 
     if (!companies[0].agents_module_active) {
@@ -970,7 +956,7 @@ app.post('/api/borrowers/apply/:company_slug', upload.fields([
       return res.status(400).json({ error: 'Explicit consent for credit record check is mandatory under NCA regulations.' });
     }
 
-    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ?`, [normalizedSlug]);
+    const [companies] = await pool.query(`SELECT id FROM companies WHERE company_slug = ? OR slug = ?`, [normalizedSlug, normalizedSlug]);
     if (companies.length === 0) return res.status(404).json({ error: 'Credit provider company not found.' });
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -1007,6 +993,33 @@ app.post('/api/borrowers/apply/:company_slug', upload.fields([
 // ====================================================================================================
 // SECTION 11: ADDITIONAL SUPPORTING API ENDPOINTS & REPORTS
 // ====================================================================================================
+
+// DYNAMIC COMPANY PROFILE ENDPOINT FOR DASHBOARDS
+app.get('/api/company/profile', authenticateToken, async (req, res) => {
+  try {
+    const [companies] = await pool.query(
+      `SELECT id, company_name, COALESCE(company_slug, slug) as company_slug, email, phone, address, agents_module_active, agent_commission_amount 
+       FROM companies WHERE id = ?`, 
+      [req.user.companyId]
+    );
+
+    if (companies.length === 0) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    const company = companies[0];
+    const protocol = req.protocol || 'https';
+    const host = req.get('host');
+    const applicationUrl = `${protocol}://${host}/apply/${company.company_slug}`;
+
+    res.json({
+      ...company,
+      applicationUrl
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error fetching company profile' });
+  }
+});
 
 app.get('/api/employees', authenticateToken, async (req, res) => {
   try {
@@ -1174,7 +1187,6 @@ app.get('/api/borrowers/:id/download-pdf', authenticateToken, async (req, res) =
   }
 });
 
-// Added KYC Documents Endpoint for Dashboard Tab Compatibility
 app.get('/api/company/documents', authenticateToken, async (req, res) => {
   try {
     const [documents] = await pool.query(
@@ -1187,9 +1199,6 @@ app.get('/api/company/documents', authenticateToken, async (req, res) => {
   }
 });
 
-// ==========================================
-// 3. PROVISION / REGISTER L3 TECHNOLOGIES
-// ==========================================
 app.post('/api/admin/provision-l3-technologies', async (req, res) => {
   try {
     const companyName = 'L3 Technologies';
@@ -1197,17 +1206,14 @@ app.post('/api/admin/provision-l3-technologies', async (req, res) => {
     const email = 'Tebogoanthony455@gmail.com';
     const plainPassword = 'Tebogo1234@';
     
-    // Hash password securely using the existing bcrypt instance
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(plainPassword, saltRounds);
 
-    // Check if company already exists
-    const [existing] = await pool.query("SELECT id FROM companies WHERE slug = ? OR email = ?", [slug, email]);
+    const [existing] = await pool.query("SELECT id FROM companies WHERE slug = ? OR company_slug = ? OR email = ?", [slug, slug, email]);
     
     let companyId;
     if (existing.length > 0) {
       companyId = existing[0].id;
-      // Update existing record to ensure active status and correct credentials
       await pool.query(
         `UPDATE companies 
          SET company_name = ?, email = ?, password_hash = ?, subscription_status = 'ACTIVE', agents_module_active = 1, agent_commission_amount = 150.00 
@@ -1215,26 +1221,24 @@ app.post('/api/admin/provision-l3-technologies', async (req, res) => {
         [companyName, email, passwordHash, companyId]
       );
     } else {
-      // Insert new active company account
       const [insertResult] = await pool.query(
-        `INSERT INTO companies (company_name, slug, email, password_hash, subscription_status, agents_module_active, agent_commission_amount) 
+        `INSERT INTO companies (company_name, slug, company_slug, email, password_hash, subscription_status, agents_module_active, agent_commission_amount) 
          VALUES (?, ?, ?, ?, 'ACTIVE', 1, 150.00)`,
-        [companyName, slug, email, passwordHash]
+        [companyName, slug, slug, email, passwordHash]
       );
       companyId = insertResult.insertId;
     }
 
-    // Ensure staff/admin user record exists for this company
-    const [existingUser] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
+    const [existingUser] = await pool.query("SELECT id FROM employees WHERE email = ?", [email]);
     if (existingUser.length === 0) {
       await pool.query(
-        `INSERT INTO users (company_id, first_name, last_name, id_number, email, phone, password_hash, role) 
+        `INSERT INTO employees (company_id, first_name, last_name, id_number, email, phone, password_hash, role) 
          VALUES (?, 'Tebogo', 'Kaulela', '9901015000088', ?, '0715694131', ?, 'ADMIN')`,
         [companyId, email, passwordHash]
       );
     } else {
       await pool.query(
-        `UPDATE users SET company_id = ?, role = 'ADMIN', password_hash = ? WHERE email = ?`,
+        `UPDATE employees SET company_id = ?, role = 'ADMIN', password_hash = ? WHERE email = ?`,
         [companyId, passwordHash, email]
       );
     }
@@ -1251,9 +1255,6 @@ app.post('/api/admin/provision-l3-technologies', async (req, res) => {
   }
 });
 
-// ==========================================
-// 4. BORROWER & AGENT DASHBOARD DATA APIS
-// ==========================================
 app.get('/api/borrower/my-loans', authenticateToken, async (req, res) => {
   try {
     const borrowerId = req.user.userId;
