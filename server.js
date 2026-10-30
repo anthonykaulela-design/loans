@@ -1022,7 +1022,10 @@ app.get('/api/company/profile', authenticateToken, async (req, res) => {
 
     const company = companies[0];
     const protocol = req.protocol || 'https';
-    const host = req.get('host');
+    let host = req.get('host') || 'loans-1uwj.onrender.com';
+    if (host.includes('localhost') || host.includes('127.0.0.1')) {
+      host = 'loans-1uwj.onrender.com';
+    }
     const applicationUrl = `${protocol}://${host}/apply/${company.company_slug}`;
 
     res.json({
