@@ -423,11 +423,24 @@ app.post('/api/companies/register', async (req, res) => {
 
     const [result] = await pool.query(
       `INSERT INTO companies (company_name, company_slug, slug, email, phone, address, registration_number, ncri_number, password_hash, is_registered_paid)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
+       ON DUPLICATE KEY UPDATE 
+         company_name = VALUES(company_name),
+         email = VALUES(email),
+         phone = VALUES(phone),
+         address = VALUES(address),
+         password_hash = VALUES(password_hash)`,
       [company_name, companySlug, companySlug, email, phone, address, registration_number, ncri_number, passwordHash]
     );
 
-    const companyId = result.insertId;
+    // Retrieve the company ID whether newly inserted or matched by unique key
+    let companyId = result.insertId;
+    if (!companyId || companyId === 0) {
+      const [existingComp] = await pool.query(`SELECT id FROM companies WHERE company_slug = ? OR slug = ?`, [companySlug, companySlug]);
+      if (existingComp.length > 0) {
+        companyId = existingComp[0].id;
+      }
+    }
 
     await pool.query(
       `INSERT INTO employees (company_id, id_number, first_name, last_name, email, phone, password_hash, role)
