@@ -1098,6 +1098,64 @@ app.post('/api/admin/provision-l3-technologies', async (req, res) => {
   }
 });
 
+// ==========================================
+// 4. BORROWER & AGENT DASHBOARD DATA APIS
+// ==========================================
+app.get('/api/borrower/my-loans', authenticateToken, async (req, res) => {
+  try {
+    const borrowerId = req.user.userId;
+    
+    const [borrowers] = await pool.query(`SELECT first_name, last_name FROM borrowers WHERE id = ?`, [borrowerId]);
+    const [loans] = await pool.query(
+      `SELECT id, principal_amount, outstanding_balance, monthly_repayment_amount, status, next_due_date FROM loans WHERE borrower_id = ?`,
+      [borrowerId]
+    );
+
+    const totalOutstanding = loans.reduce((sum, l) => sum + parseFloat(l.outstanding_balance || 0), 0);
+    const monthlyRepayment = loans.reduce((sum, l) => sum + parseFloat(l.monthly_repayment_amount || 0), 0);
+    const nextDueDate = loans.length > 0 ? loans[0].next_due_date : null;
+
+    res.json({
+      borrower: borrowers[0] || { first_name: 'Client', last_name: '' },
+      summary: { total_outstanding: totalOutstanding, monthly_repayment: monthlyRepayment, next_due_date: nextDueDate },
+      loans
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/agent/my-performance', authenticateToken, async (req, res) => {
+  try {
+    const agentId = req.user.userId;
+    
+    const [agents] = await pool.query(`SELECT first_name, last_name FROM sales_agents WHERE id = ?`, [agentId]);
+    const [referrals] = await pool.query(
+      `SELECT b.first_name, b.last_name, b.phone, l.status AS loan_status, c.agent_commission_amount
+       FROM borrowers b
+       JOIN companies c ON b.company_id = c.id
+       LEFT JOIN loans l ON l.borrower_id = b.id
+       WHERE b.agent_id = ?`,
+      [agentId]
+    );
+
+    const approvedList = referrals.filter(r => r.loan_status === 'APPROVED' || r.loan_status === 'ACTIVE');
+    const totalCommission = approvedList.length * (referrals[0]?.agent_commission_amount || 0);
+
+    res.json({
+      agent: agents[0] || { first_name: 'Agent', last_name: '' },
+      total_commission: totalCommission,
+      approved_count: approvedList.length,
+      referrals: referrals.map(r => ({
+        ...r,
+        commission_amount: (r.loan_status === 'APPROVED' || r.loan_status === 'ACTIVE') ? r.agent_commission_amount : 0
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`====================================================================================`);
