@@ -1034,6 +1034,19 @@ app.get('/api/borrowers/:id/download-pdf', authenticateToken, async (req, res) =
   }
 });
 
+// Added KYC Documents Endpoint for Dashboard Tab Compatibility
+app.get('/api/company/documents', authenticateToken, async (req, res) => {
+  try {
+    const [documents] = await pool.query(
+      `SELECT id, first_name, last_name, id_number, id_copy_doc, proof_residence_doc, income_proof_doc, bank_statement_doc, created_at FROM borrowers WHERE company_id = ? ORDER BY created_at DESC`,
+      [req.user.companyId]
+    );
+    res.json({ borrower_documents: documents });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==========================================
 // 3. PROVISION / REGISTER L3 TECHNOLOGIES
 // ==========================================
