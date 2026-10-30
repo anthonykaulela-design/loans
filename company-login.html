@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin & Staff Login - L3 Technologies</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <a href="index.html" class="brand">
+      <img src="logo.jpg" alt="L3 Logo" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'40\' height=\'40\' viewBox=\'0 0 40 40\'><rect width=\'40\' height=\'40\' fill=\'%230d6efd\'/><text x=\'50%\' y=\'55%\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'18\' font-weight=\'bold\'>L3</text></svg>'">
+      <h1>L3 Technologies</h1>
+    </a>
+    <nav>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="about.html">About & Contact</a></li>
+        <li><a href="register-company.html">Register Tenant</a></li>
+        <li><a href="company-login.html" class="active">Admin/Staff Login</a></li>
+        <li><a href="agent-login.html">Agent Login</a></li>
+        <li><a href="client-login.html">Client Login</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <div class="form-container">
+      <h2 style="margin-bottom: 0.5rem;">Company Admin & Staff Login</h2>
+      <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.9rem;">
+        Sign in with your administrative credentials or employee ID number.
+      </p>
+
+      <div id="alert-login" class="alert"></div>
+
+      <form id="form-login">
+        <div class="form-group">
+          <label>Company Slug Identifier</label>
+          <input type="text" id="login_company_slug" placeholder="e.g. acme-loans" required>
+        </div>
+        <div class="form-group">
+          <label>Email Address or Employee ID Number</label>
+          <input type="text" id="login_email_or_id" required>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="login_password" required>
+        </div>
+        <button type="submit" class="btn" style="width: 100%;">Sign In to Dashboard</button>
+      </form>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 L3 Technologies. All Rights Reserved. Email: anthonykaulela@gmail.com | Cell: 0715694131</p>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    document.getElementById('form-login').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const payload = {
+        company_slug: document.getElementById('login_company_slug').value,
+        email_or_id: document.getElementById('login_email_or_id').value,
+        password: document.getElementById('login_password').value
+      };
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/company-login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+
+        localStorage.setItem('token', data.token);
+        showAlert('alert-login', 'Login successful! Redirecting to dashboard...');
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 1500);
+      } catch (err) {
+        showAlert('alert-login', err.message, true);
+      }
+    });
+  </script>
+</body>
+</html>

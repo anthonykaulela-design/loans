@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sales Agent Application - L3 Technologies</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <a href="index.html" class="brand">
+      <img src="logo.jpg" alt="L3 Logo" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'40\' height=\'40\' viewBox=\'0 0 40 40\'><rect width=\'40\' height=\'40\' fill=\'%230d6efd\'/><text x=\'50%\' y=\'55%\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'18\' font-weight=\'bold\'>L3</text></svg>'">
+      <h1>L3 Technologies</h1>
+    </a>
+    <nav>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="about.html">About & Contact</a></li>
+        <li><a href="register-company.html">Register Software Tenant</a></li>
+        <li><a href="agent-application.html" class="active">Agent Application</a></li>
+        <li><a href="company-login.html">Portal Login</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <div class="form-container">
+      <h2 style="margin-bottom: 0.5rem;">Apply as Sales Agent</h2>
+      <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.9rem;">
+        Submit your details to apply for an active credit company on our platform.
+      </p>
+
+      <div id="alert-agent" class="alert"></div>
+
+      <form id="form-agent" enctype="multipart/form-data">
+        <div class="form-group">
+          <label>Target Company Slug Identifier</label>
+          <input type="text" id="agent_company_slug" placeholder="e.g. acme-loans" required>
+        </div>
+        <div class="form-group">
+          <label>ID / Passport Number</label>
+          <input type="text" name="id_number" required>
+        </div>
+        <div class="form-group">
+          <label>First Name</label>
+          <input type="text" name="first_name" required>
+        </div>
+        <div class="form-group">
+          <label>Last Name</label>
+          <input type="text" name="last_name" required>
+        </div>
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" name="email" required>
+        </div>
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="text" name="phone" required>
+        </div>
+        <div class="form-group">
+          <label>Account Password</label>
+          <input type="password" name="password" required>
+        </div>
+        <div class="form-group">
+          <label>Upload Curriculum Vitae (CV)</label>
+          <input type="file" name="cv_document" required>
+        </div>
+        <div class="form-group">
+          <label>Upload ID Copy</label>
+          <input type="file" name="id_copy" required>
+        </div>
+        <div class="form-group">
+          <label>Upload Proof of Residence</label>
+          <input type="file" name="proof_of_residence" required>
+        </div>
+        <button type="submit" class="btn" style="width: 100%;">Submit Application</button>
+      </form>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 L3 Technologies. All Rights Reserved. Email: anthonykaulela@gmail.com | Cell: 0715694131</p>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    document.getElementById('form-agent').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const slug = document.getElementById('agent_company_slug').value;
+      const formData = new FormData(e.target);
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/agents/apply/${slug}`, {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Application submission failed');
+
+        showAlert('alert-agent', 'Application submitted successfully! Awaiting credit provider approval.');
+      } catch (err) {
+        showAlert('alert-agent', err.message, true);
+      }
+    });
+  </script>
+</body>
+</html>

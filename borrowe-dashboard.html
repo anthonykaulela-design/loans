@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Borrower Portal | Loan Balance & Schedule</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
+    .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; color: white; }
+    .table { color: #f8fafc; }
+    .table th { background-color: #0f172a; color: #94a3b8; border-color: #334155; }
+    .table td { border-color: #334155; }
+  </style>
+</head>
+<body>
+  <nav class="navbar navbar-dark bg-dark border-bottom border-secondary">
+    <div class="container">
+      <span class="navbar-brand fw-bold text-info" id="borrowerName">Borrower Portal</span>
+      <button class="btn btn-outline-light btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="container py-5">
+    <div class="row g-3 mb-4">
+      <div class="col-md-4">
+        <div class="card p-3 border-start border-4 border-danger">
+          <span class="text-muted small">Total Outstanding Balance</span>
+          <h3 class="fw-bold text-danger mb-0" id="totalOwed">R0.00</h3>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-3 border-start border-4 border-primary">
+          <span class="text-muted small">Next Repayment Due Date</span>
+          <h3 class="fw-bold text-primary mb-0" id="nextDueDate">N/A</h3>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card p-3 border-start border-4 border-success">
+          <span class="text-muted small">Monthly Repayment</span>
+          <h3 class="fw-bold text-success mb-0" id="monthlyRepayment">R0.00</h3>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-4">
+      <h4 class="fw-bold mb-3 text-info">Your Active Loan Accounts</h4>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead>
+            <tr>
+              <th>Loan ID</th>
+              <th>Principal Amount</th>
+              <th>Outstanding Balance</th>
+              <th>Status</th>
+              <th>Next Due Date</th>
+            </tr>
+          </thead>
+          <tbody id="loansTableBody">
+            <tr><td colspan="5" class="text-center text-muted">Loading loan balances...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('borrowerToken');
+    if (!token) window.location.href = '/borrower-login.html';
+
+    async function loadBorrowerData() {
+      try {
+        const res = await fetch('/api/borrower/my-loans', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+          document.getElementById('borrowerName').innerText = `Welcome, ${data.borrower.first_name}`;
+          document.getElementById('totalOwed').innerText = `R${data.summary.total_outstanding.toFixed(2)}`;
+          document.getElementById('nextDueDate').innerText = data.summary.next_due_date || 'None';
+          document.getElementById('monthlyRepayment').innerText = `R${data.summary.monthly_repayment.toFixed(2)}`;
+
+          document.getElementById('loansTableBody').innerHTML = data.loans.map(l => `
+            <tr>
+              <td>#${l.id}</td>
+              <td>R${parseFloat(l.principal_amount).toFixed(2)}</td>
+              <td class="fw-bold text-danger">R${parseFloat(l.outstanding_balance).toFixed(2)}</td>
+              <td><span class="badge bg-${l.status === 'ACTIVE' ? 'success' : 'secondary'}">${l.status}</span></td>
+              <td>${l.next_due_date || 'N/A'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) { console.error('Error loading borrower loans:', err); }
+    }
+
+    function logout() { localStorage.clear(); window.location.href = '/borrower-login.html'; }
+    loadBorrowerData();
+  </script>
+</body>
+</html>

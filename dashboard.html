@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enterprise Portal Dashboard - L3 Technologies</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --border-color: #334155;
+      --primary-color: #38bdf8;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    body { background-color: var(--bg-color); color: var(--text-main); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; }
+    header { background-color: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    .brand { display: flex; align-items: center; gap: 1rem; text-decoration: none; color: white; }
+    .brand img { width: 40px; height: 40px; border-radius: 8px; }
+    nav ul { list-style: none; display: flex; gap: 1.5rem; align-items: center; margin: 0; padding: 0; }
+    nav a { color: var(--text-muted); text-decoration: none; cursor: pointer; }
+    nav a:hover { color: var(--primary-color); }
+    
+    .dashboard-layout { display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem; padding: 2rem; min-height: 80vh; }
+    .sidebar { background-color: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; height: fit-content; }
+    .sidebar button { background: none; border: none; color: var(--text-muted); text-align: left; padding: 0.75rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 0.95rem; transition: all 0.2s; }
+    .sidebar button:hover, .sidebar button.active { background-color: #0f172a; color: var(--primary-color); }
+    
+    .content-area { background-color: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 2rem; }
+    .dash-section { display: none; }
+    .dash-section.active { display: block; }
+    
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
+    .stat-card { background-color: #0f172a; border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; }
+    .stat-card h4 { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-card p { font-size: 1.5rem; font-weight: bold; color: var(--primary-color); margin: 0; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+    th, td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
+    th { background-color: #0f172a; color: var(--text-muted); font-weight: 600; }
+    
+    .messaging-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+    @media (max-width: 900px) {
+      .messaging-grid { grid-template-columns: 1fr; }
+      .dashboard-layout { grid-template-columns: 1fr; }
+    }
+    .msg-card { background: #0f172a; border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 8px; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem; }
+    .form-control, input[type="text"], input[type="email"], input[type="password"], input[type="number"], textarea, select {
+      width: 100%; background: #0f172a; border: 1px solid var(--border-color); color: white; padding: 0.65rem 0.85rem; border-radius: 6px; font-size: 0.95rem; box-sizing: border-box;
+    }
+    .form-control:focus, input:focus, textarea:focus { border-color: var(--primary-color); outline: none; }
+    
+    .btn { background: #0284c7; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .btn:hover { background: #0ea5e9; }
+    .btn-danger { background: #ef4444; }
+    .btn-danger:hover { background: #dc2626; }
+
+    .badge-type { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .type-whatsapp { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .type-sms { background: rgba(13, 110, 253, 0.2); color: #60a5fa; }
+    
+    .link-card { background: #0f172a; border: 1px solid var(--border-color); border-left: 4px solid var(--primary-color); padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+    .link-box { font-family: monospace; background: #1e293b; color: #38bdf8; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.9rem; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="index.html" class="brand">
+      <img src="logo.jpg" alt="L3 Logo" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'40\' height=\'40\' viewBox=\'0 0 40 40\'><rect width=\'40\' height=\'40\' fill=\'%230284c7\'/><text x=\'50%\' y=\'55%\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'18\' font-weight=\'bold\'>L3</text></svg>'">
+      <h1 style="font-size: 1.2rem; margin: 0;" id="dashboardTitle">L3 Enterprise Loan Dashboard</h1>
+    </a>
+    <nav>
+      <ul>
+        <li><a id="userBadge" style="color: var(--primary-color); font-weight: bold;">Role: Loading...</a></li>
+        <li><a onclick="logout()" style="color: #ef4444; font-weight: 500;">Logout</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <div class="dashboard-layout">
+    <!-- SIDEBAR NAVIGATION -->
+    <div class="sidebar">
+      <button id="tab-overview" class="active" onclick="switchTab('overview')">Overview & Metrics</button>
+      <button id="tab-ledger" onclick="switchTab('ledger')">Financial Ledgers (CRJ/CPJ)</button>
+      <button id="tab-documents" onclick="switchTab('documents')">KYC & Documents</button>
+      <button id="tab-agent-settings" class="admin-only" onclick="switchTab('agent-settings')">Sales Agent Settings</button>
+      <button id="tab-messaging" onclick="switchTab('messaging')">Messaging & SMS Center</button>
+      <button id="tab-whatsapp" class="admin-only" onclick="switchTab('whatsapp')">WhatsApp API Link</button>
+      <button id="tab-employees" class="admin-only" onclick="switchTab('employees')">Staff Management</button>
+    </div>
+
+    <!-- MAIN CONTENT AREA -->
+    <div class="content-area">
+      <div id="alertBox"></div>
+
+      <!-- 1. OVERVIEW & METRICS -->
+      <div id="sec-overview" class="dash-section active">
+        <h2>Financial & Operational Overview</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;" id="companySubtitle">
+          Multi-tenant credit operations, metrics, and branded client application portal link.
+        </p>
+
+        <div class="link-card">
+          <div>
+            <h4 style="margin: 0 0 0.4rem 0; color: var(--primary-color);">Unique Borrower Application URL</h4>
+            <span class="link-box" id="companyAppUrl">Loading application URL...</span>
+          </div>
+          <button class="btn" onclick="copyAppUrl()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Copy URL</button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <h4>CASH RECEIVED (CRJ)</h4>
+            <p id="stat-crj">R0.00</p>
+          </div>
+          <div class="stat-card">
+            <h4>DISBURSEMENTS (CPJ)</h4>
+            <p id="stat-cpj">R0.00</p>
+          </div>
+          <div class="stat-card">
+            <h4>NET CASH FLOW</h4>
+            <p id="stat-net">R0.00</p>
+          </div>
+          <div class="stat-card">
+            <h4>SALES AGENT MODULE</h4>
+            <p id="stat-agent-status" style="font-size: 1.2rem;">Checking...</p>
+          </div>
+          <div class="stat-card">
+            <h4>COMMISSION / LOAN</h4>
+            <p id="stat-agent-payout">R0.00</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. FINANCIAL LEDGERS (CRJ/CPJ) -->
+      <div id="sec-ledger" class="dash-section">
+        <h2>Cash Receipts & Payments Ledger</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Borrower</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Balance After</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerTableBody">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading transactions...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 3. KYC & DOCUMENTS -->
+      <div id="sec-documents" class="dash-section">
+        <h2>Submitted KYC Verification Documents</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Applicant</th>
+              <th>ID Number</th>
+              <th>Document Set</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="docsTableBody">
+            <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Loading documents...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 4. SALES AGENT SETTINGS -->
+      <div id="sec-agent-settings" class="dash-section">
+        <h2>Sales Agent Module Configuration</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+          Toggle public agent recruitment and configure agent referral commission per funded loan.
+        </p>
+
+        <form id="agentConfigForm" style="background: #0f172a; padding: 1.5rem; border-radius: 8px; max-width: 600px; border: 1px solid var(--border-color);">
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+            <input type="checkbox" id="agentsModuleActive" style="width: 20px; height: 20px; cursor: pointer;" onchange="toggleCommissionInput(this.checked)">
+            <label for="agentsModuleActive" style="font-weight: bold; cursor: pointer; color: white; margin: 0;">Enable Sales Agent Portal & Recruitment</label>
+          </div>
+
+          <div class="form-group" id="commissionGroup" style="margin-bottom: 1.5rem;">
+            <label>Commission / Referral Amount Per Approved Loan (ZAR)</label>
+            <input type="number" step="0.01" id="agentCommissionAmount" placeholder="e.g. 150.00">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.4rem;">
+              This rate is automatically displayed on agent application forms and calculated during performance tracking.
+            </small>
+          </div>
+
+          <button type="submit" class="btn">Save Agent Configuration</button>
+        </form>
+      </div>
+
+      <!-- 5. MESSAGING & SMS CENTER -->
+      <div id="sec-messaging" class="dash-section">
+        <h2>Communication & Messaging Center</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+          Dispatch manual SMS or WhatsApp messages to clients, and review live outbound communication logs.
+        </p>
+
+        <div class="messaging-grid">
+          <div class="msg-card">
+            <h3 style="color: var(--primary-color); margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem;">Send Manual SMS (MTN Gateway)</h3>
+            <form id="sendSmsForm">
+              <div class="form-group">
+                <label>Recipient Phone Number</label>
+                <input type="text" id="sms_phone" placeholder="e.g. 0715694131" required>
+              </div>
+              <div class="form-group">
+                <label>Message Text</label>
+                <textarea id="sms_text" rows="3" placeholder="Type SMS message..." required></textarea>
+              </div>
+              <button type="submit" class="btn" style="width: 100%;">Dispatch SMS</button>
+            </form>
+          </div>
+
+          <div class="msg-card">
+            <h3 style="color: #34d399; margin-top: 0; margin-bottom: 1.0rem; font-size: 1.1rem;">Send Manual WhatsApp Message</h3>
+            <form id="sendWaForm">
+              <div class="form-group">
+                <label>Recipient Phone Number</label>
+                <input type="text" id="wa_phone" placeholder="e.g. 0715694131" required>
+              </div>
+              <div class="form-group">
+                <label>Message Text</label>
+                <textarea id="wa_text" rows="3" placeholder="Type WhatsApp message..." required></textarea>
+              </div>
+              <button type="submit" class="btn" style="width: 100%; background: #059669;">Dispatch WhatsApp</button>
+            </form>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.1rem;">Outbound Communication Logs</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Date / Time</th>
+              <th>Channel / Type</th>
+              <th>Recipient</th>
+              <th>Status</th>
+              <th>Message Content</th>
+            </tr>
+          </thead>
+          <tbody id="smsLogsTableBody">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading logs...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 6. WHATSAPP API LINK -->
+      <div id="sec-whatsapp" class="dash-section">
+        <h2>Link Company WhatsApp Account</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Generate your session QR code to enable automated WhatsApp notifications and alerts.</p>
+        <div style="text-align: center; margin-top: 2rem;">
+          <button class="btn" onclick="initWhatsApp()">Generate WhatsApp QR Code</button>
+          <div id="qrContainer" style="margin-top: 1.5rem;">
+            <p style="color: var(--text-muted);">Click the button above to generate your session QR code.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. STAFF MANAGEMENT -->
+      <div id="sec-employees" class="dash-section">
+        <h2>Company Staff Management</h2>
+        <form id="addStaffForm" style="margin-bottom: 2rem; background: #0f172a; padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color);">
+          <h3 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem; color: var(--primary-color);">Add New Staff Member</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div class="form-group"><label>First Name</label><input type="text" id="emp_fname" required></div>
+            <div class="form-group"><label>Last Name</label><input type="text" id="emp_lname" required></div>
+            <div class="form-group"><label>SA ID Number</label><input type="text" id="emp_id" required></div>
+            <div class="form-group"><label>Email Address</label><input type="email" id="emp_email" required></div>
+            <div class="form-group"><label>Phone Number</label><input type="text" id="emp_phone" required></div>
+            <div class="form-group"><label>Password</label><input type="password" id="emp_pwd" required></div>
+          </div>
+          <button type="submit" class="btn">Register Staff Member</button>
+        </form>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 1rem;">Active Company Employees</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>ID Number</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Role</th>
+            </tr>
+          </thead>
+          <tbody id="employeesTableBody">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading employees...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = 'company-login.html';
+
+    function parseJwt(token) {
+      try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; }
+    }
+
+    const user = parseJwt(token);
+    document.getElementById('userBadge').textContent = `Role: ${user?.role || user?.userType || 'USER'}`;
+
+    if (user?.role !== 'ADMIN') {
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+    }
+
+    let dynamicAppUrl = '';
+    let currentCompanySlug = user?.company_slug || 'l3-technologies';
+
+    async function loadCompanyProfile() {
+      try {
+        const res = await fetch('/api/company/profile', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const company = await res.json();
+          currentCompanySlug = company.company_slug || company.slug || user?.company_slug || 'l3-technologies';
+          
+          let baseHost = window.location.origin;
+          if (!baseHost || baseHost.startsWith('file://') || baseHost.includes('localhost') || baseHost.includes('127.0.0.1')) {
+            baseHost = 'https://loans-1uwj.onrender.com';
+          }
+
+          dynamicAppUrl = company.applicationUrl || `${baseHost}/apply/${currentCompanySlug}`;
+          document.getElementById('companyAppUrl').textContent = dynamicAppUrl;
+          if (company.company_name) {
+            document.getElementById('dashboardTitle').textContent = `${company.company_name} Dashboard`;
+            document.title = `Enterprise Portal Dashboard - ${company.company_name}`;
+          }
+        } else {
+          let baseHost = window.location.origin;
+          if (!baseHost || baseHost.startsWith('file://') || baseHost.includes('localhost') || baseHost.includes('127.0.0.1')) {
+            baseHost = 'https://loans-1uwj.onrender.com';
+          }
+          dynamicAppUrl = `${baseHost}/apply/${currentCompanySlug}`;
+          document.getElementById('companyAppUrl').textContent = dynamicAppUrl;
+        }
+      } catch (err) {
+        let baseHost = window.location.origin;
+        if (!baseHost || baseHost.startsWith('file://') || baseHost.includes('localhost') || baseHost.includes('127.0.0.1')) {
+          baseHost = 'https://loans-1uwj.onrender.com';
+        }
+        dynamicAppUrl = `${baseHost}/apply/${currentCompanySlug}`;
+        document.getElementById('companyAppUrl').textContent = dynamicAppUrl;
+      }
+    }
+
+    function copyAppUrl() {
+      if (!dynamicAppUrl) return;
+      navigator.clipboard.writeText(dynamicAppUrl);
+      alert('Application URL copied to clipboard!');
+    }
+
+    function toggleCommissionInput(active) {
+      document.getElementById('commissionGroup').style.display = active ? 'block' : 'none';
+    }
+
+    function logout() {
+      localStorage.removeItem('token');
+      window.location.href = 'company-login.html';
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.dash-section').forEach(sec => sec.classList.remove('active'));
+      document.querySelectorAll('.sidebar button').forEach(btn => btn.classList.remove('active'));
+      
+      document.getElementById(`sec-${tabId}`).classList.add('active');
+      document.getElementById(`tab-${tabId}`).classList.add('active');
+
+      if (tabId === 'ledger') fetchLedger();
+      if (tabId === 'documents') fetchDocuments();
+      if (tabId === 'agent-settings') fetchAgentConfig();
+      if (tabId === 'messaging') fetchSmsLogs();
+      if (tabId === 'employees') fetchEmployees();
+    }
+
+    async function fetchAgentConfig() {
+      try {
+        const activeSlug = currentCompanySlug || user?.company_slug || 'l3-technologies';
+        const res = await fetch(`/api/company/public-config/${activeSlug}`);
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('agentsModuleActive').checked = data.agents_module_active;
+          document.getElementById('agentCommissionAmount').value = data.agent_commission_amount || 0;
+          toggleCommissionInput(data.agents_module_active);
+
+          const statusElem = document.getElementById('stat-agent-status');
+          statusElem.textContent = data.agents_module_active ? 'ENABLED' : 'DISABLED';
+          statusElem.style.color = data.agents_module_active ? '#34d399' : '#f87171';
+          document.getElementById('stat-agent-payout').textContent = `R${parseFloat(data.agent_commission_amount || 0).toFixed(2)}`;
+        }
+      } catch (err) { console.error('Error fetching agent settings:', err); }
+    }
+
+    document.getElementById('agentConfigForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        agents_module_active: document.getElementById('agentsModuleActive').checked,
+        agent_commission_amount: parseFloat(document.getElementById('agentCommissionAmount').value || 0)
+      };
+
+      try {
+        const res = await fetch('/api/company/agent-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update settings');
+        alert('Agent configuration updated successfully!');
+        fetchAgentConfig();
+      } catch (err) { alert(err.message); }
+    });
+
+    async function fetchLedger() {
+      try {
+        const res = await fetch('/api/reports/ledger', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        
+        document.getElementById('stat-crj').textContent = `R${data.summary.total_cash_received.toFixed(2)}`;
+        document.getElementById('stat-cpj').textContent = `R${data.summary.total_cash_paid_out.toFixed(2)}`;
+        document.getElementById('stat-net').textContent = `R${data.summary.net_cash_flow.toFixed(2)}`;
+
+        const tbody = document.getElementById('ledgerTableBody');
+        tbody.innerHTML = data.all_transactions.map(t => `
+          <tr>
+            <td>${new Date(t.transaction_date).toLocaleDateString()}</td>
+            <td>${t.first_name} ${t.last_name}</td>
+            <td>${t.ledger_type}</td>
+            <td>R${t.amount}</td>
+            <td>R${t.balance_after}</td>
+          </tr>
+        `).join('') || '<tr><td colspan="5" style="text-align: center;">No ledger transactions found.</td></tr>';
+      } catch (err) { console.error(err); }
+    }
+
+    async function fetchDocuments() {
+      try {
+        const res = await fetch('/api/company/documents', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        const tbody = document.getElementById('docsTableBody');
+        tbody.innerHTML = data.borrower_documents.map(d => `
+          <tr>
+            <td>${d.first_name} ${d.last_name}</td>
+            <td>${d.id_number}</td>
+            <td>KYC Verification Files</td>
+            <td><a href="/${d.id_copy_doc}" target="_blank" style="color:var(--primary-color);">View Files</a></td>
+          </tr>
+        `).join('') || '<tr><td colspan="4" style="text-align: center;">No documents available.</td></tr>';
+      } catch (err) { console.error(err); }
+    }
+
+    async function fetchSmsLogs() {
+      try {
+        const res = await fetch('/api/sms/logs', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        const tbody = document.getElementById('smsLogsTableBody');
+        tbody.innerHTML = data.sms_logs.map(s => `
+          <tr>
+            <td>${new Date(s.created_at).toLocaleString()}</td>
+            <td><span class="badge-type ${s.sms_type === 'WHATSAPP' ? 'type-whatsapp' : 'type-sms'}">${s.sms_type}</span></td>
+            <td>${s.recipient_phone}</td>
+            <td><span style="color: ${s.status === 'SENT' ? '#34d399' : '#f87171'}; font-weight:bold;">${s.status}</span></td>
+            <td>${s.message_text}</td>
+          </tr>
+        `).join('') || '<tr><td colspan="5" style="text-align: center;">No communication logs recorded yet.</td></tr>';
+      } catch (err) { console.error(err); }
+    }
+
+    async function fetchEmployees() {
+      try {
+        const res = await fetch('/api/employees', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        const tbody = document.getElementById('employeesTableBody');
+        tbody.innerHTML = data.employees.map(e => `
+          <tr>
+            <td>${e.first_name} ${e.last_name}</td>
+            <td>${e.id_number}</td>
+            <td>${e.email}</td>
+            <td>${e.phone}</td>
+            <td><span style="background:rgba(13,110,253,0.2); color:#38bdf8; padding:2px 8px; border-radius:4px; font-weight:600;">${e.role}</span></td>
+          </tr>
+        `).join('') || '<tr><td colspan="5" style="text-align: center;">No employees registered yet.</td></tr>';
+      } catch (err) { console.error(err); }
+    }
+
+    document.getElementById('sendSmsForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        phone_number: document.getElementById('sms_phone').value,
+        message: document.getElementById('sms_text').value
+      };
+      try {
+        const res = await fetch('/api/sms/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to send SMS');
+        alert('SMS sent successfully!');
+        e.target.reset();
+        fetchSmsLogs();
+      } catch (err) { alert(err.message); }
+    });
+
+    document.getElementById('sendWaForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        phone_number: document.getElementById('wa_phone').value,
+        message: document.getElementById('wa_text').value
+      };
+      try {
+        const res = await fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to send WhatsApp message');
+        alert('WhatsApp message sent successfully!');
+        e.target.reset();
+        fetchSmsLogs();
+      } catch (err) { alert(err.message); }
+    });
+
+    async function initWhatsApp() {
+      const qrContainer = document.getElementById('qrContainer');
+      qrContainer.innerHTML = `<p style="color: var(--primary-color);">Initializing WhatsApp session...</p>`;
+      try {
+        await fetch('/api/whatsapp/connect', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        let attempts = 0;
+        const interval = setInterval(async () => {
+          attempts++;
+          const res = await fetch('/api/whatsapp/qr', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.qr_code) {
+              clearInterval(interval);
+              qrContainer.innerHTML = `<img src="${data.qr_code}" alt="WhatsApp QR Code" style="width:220px; background:#fff; padding:10px; border-radius:8px;"><p style="margin-top:10px; font-size:0.85rem; color:var(--text-muted);">Scan with WhatsApp app</p>`;
+            }
+          }
+          if (attempts > 12) {
+            clearInterval(interval);
+            qrContainer.innerHTML = `<p style="color: #f87171;">QR code request timed out.</p>`;
+          }
+        }, 3000);
+      } catch (err) {
+        qrContainer.innerHTML = `<p style="color: #f87171;">Failed to connect WhatsApp session.</p>`;
+      }
+    }
+
+    document.getElementById('addStaffForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        first_name: document.getElementById('emp_fname').value,
+        last_name: document.getElementById('emp_lname').value,
+        id_number: document.getElementById('emp_id').value,
+        email: document.getElementById('emp_email').value,
+        phone: document.getElementById('emp_phone').value,
+        password: document.getElementById('emp_pwd').value,
+        role: 'STAFF'
+      };
+
+      try {
+        const res = await fetch('/api/employees/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add staff');
+        alert('Staff member added successfully!');
+        e.target.reset();
+        fetchEmployees();
+      } catch (err) { alert(err.message); }
+    });
+
+    // Initialize Dashboard Calls
+    loadCompanyProfile().then(() => {
+      fetchLedger();
+      fetchAgentConfig();
+    });
+  </script>
+</body>
+</html>

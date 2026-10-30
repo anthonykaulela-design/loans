@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loan & Agent Application | Credit Portal</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .card { background-color: #1e293b; border: 1px solid #334155; color: white; border-radius: 12px; }
+    .form-control, .form-select { background-color: #0f172a; border: 1px solid #334155; color: white; }
+    .form-control:focus, .form-select:focus { background-color: #0f172a; color: white; border-color: #38bdf8; box-shadow: none; }
+    .nav-pills .nav-link { color: #94a3b8; }
+    .nav-pills .nav-link.active { background-color: #0284c7; color: white; }
+    .section-header { border-bottom: 1px solid #334155; padding-bottom: 0.5rem; margin-top: 1.5rem; margin-bottom: 1rem; color: #38bdf8; font-weight: 600; }
+    #sig-canvas { border: 2px dashed #334155; border-radius: 8px; background-color: #0f172a; cursor: crosshair; touch-action: none; }
+  </style>
+</head>
+<body>
+  <div class="container py-5">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold text-info" id="providerName">Loading Provider...</h2>
+      <p class="text-muted">Apply for credit or register as an authorized sales agent.</p>
+    </div>
+
+    <div class="col-lg-10 mx-auto">
+      <ul class="nav nav-pills nav-justified mb-4" id="pills-tab" role="tablist">
+        <li class="nav-item">
+          <button class="nav-link active fw-bold" id="borrower-tab" data-bs-toggle="pill" data-bs-target="#borrower-apply">Apply for a Loan</button>
+        </li>
+        <li class="nav-item" id="agentTabContainer" style="display: none;">
+          <button class="nav-link fw-bold" id="agent-tab" data-bs-toggle="pill" data-bs-target="#agent-apply">Join as Sales Agent</button>
+        </li>
+      </ul>
+
+      <div class="tab-content" id="pills-tabContent">
+        <!-- BORROWER APPLICATION FORM -->
+        <div class="tab-pane fade show active" id="borrower-apply">
+          <div class="card p-4">
+            <h4 class="fw-bold mb-3 text-primary">Borrower Credit Application</h4>
+            <form id="borrowerForm" enctype="multipart/form-data">
+              
+              <!-- 1. PERSONAL IDENTIFICATION -->
+              <div class="section-header">1. Personal Identification & Contact Details</div>
+              <div class="row g-3 mb-3">
+                <div class="col-md-6"><label class="form-label">First Name(s)</label><input type="text" name="first_name" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Last Name</label><input type="text" name="last_name" class="form-control" required></div>
+                <div class="col-md-6">
+                  <label class="form-label">Document Type</label>
+                  <select name="id_type" class="form-select" required>
+                    <option value="SA_ID">SA Green Bar-Coded ID / Smart ID Card</option>
+                    <option value="PASSPORT">Valid Passport (Non-Citizens)</option>
+                  </select>
+                </div>
+                <div class="col-md-6"><label class="form-label">ID / Passport Number</label><input type="text" name="id_number" class="form-control" placeholder="Must be at least 18 years old" required></div>
+                <div class="col-md-4"><label class="form-label">Date of Birth</label><input type="date" name="dob" class="form-control" required></div>
+                <div class="col-md-4">
+                  <label class="form-label">Marital Status</label>
+                  <select name="marital_status" class="form-select" required>
+                    <option value="SINGLE">Single</option>
+                    <option value="MARRIED_COP">Married (In Community of Property)</option>
+                    <option value="MARRIED_ANC">Married (Out of Community of Property)</option>
+                    <option value="DIVORCED">Divorced / Widowed</option>
+                  </select>
+                </div>
+                <div class="col-md-4"><label class="form-label">Phone Number</label><input type="text" name="phone" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Email Address</label><input type="email" name="email" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Residential Address</label><input type="text" name="residential_address" class="form-control" placeholder="Physical Address" required></div>
+              </div>
+
+              <!-- 2. EMPLOYMENT & AFFORDABILITY DETAILS -->
+              <div class="section-header">2. Employment & Financial Affordability</div>
+              <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label">Employment Status</label>
+                  <select name="employment_status" id="empStatusSelect" class="form-select" onchange="handleEmpStatusChange(this.value)" required>
+                    <option value="EMPLOYED">Employed (Full-Time / Contract)</option>
+                    <option value="SELF_EMPLOYED">Self-Employed / Business Owner</option>
+                  </select>
+                </div>
+                <div class="col-md-6"><label class="form-label">Employer / Business Name</label><input type="text" name="employer_name" class="form-control" required></div>
+                <div class="col-md-4"><label class="form-label">Length of Employment (Months)</label><input type="number" name="employment_months" class="form-control" min="1" required></div>
+                <div class="col-md-4"><label class="form-label">Gross Monthly Income (ZAR)</label><input type="number" step="0.01" name="monthly_gross_income" class="form-control" required></div>
+                <div class="col-md-4"><label class="form-label">Net Monthly Income (ZAR)</label><input type="number" step="0.01" name="monthly_net_income" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Total Monthly Regular Expenses (ZAR)</label><input type="number" step="0.01" name="monthly_expenses" class="form-control" placeholder="Rent, Groceries, Utilities, etc." required></div>
+                <div class="col-md-6"><label class="form-label">Existing Monthly Debt Obligations (ZAR)</label><input type="number" step="0.01" name="existing_debt_obligations" class="form-control" placeholder="Other Loans, Credit Cards" required></div>
+              </div>
+
+              <!-- 3. REQUIRED DOCUMENTATION UPLOADS -->
+              <div class="section-header">3. Upload Required Compliance Documents</div>
+              <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label">Proof of Identity (ID / Smart Card / Passport)</label>
+                  <input type="file" name="id_copy_doc" class="form-control" accept=".pdf,.png,.jpg,.jpeg" required>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Proof of Address (&lt; 3 Months Old)</label>
+                  <input type="file" name="proof_residence_doc" class="form-control" accept=".pdf,.png,.jpg,.jpeg" required>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" id="incomeProofLabel">Proof of Income (Latest 3 Salary Slips)</label>
+                  <input type="file" name="income_proof_doc" class="form-control" accept=".pdf,.png,.jpg,.jpeg" required>
+                  <small class="text-muted d-block mt-1" id="incomeProofHelp">For Self-Employed: Attach 6 months financial statements or accountant drawing letter.</small>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Bank Statements (Latest 3-6 Consecutive Months)</label>
+                  <input type="file" name="bank_statement_doc" class="form-control" accept=".pdf,.png,.jpg,.jpeg" required>
+                  <small class="text-muted d-block mt-1">Must clearly reflect salary deposits and everyday spending.</small>
+                </div>
+              </div>
+
+              <!-- 4. ACCOUNT CREATION -->
+              <div class="section-header">4. Portal Access Credentials</div>
+              <div class="mb-3">
+                <label class="form-label">Create Account Password</label>
+                <input type="password" name="password" class="form-control" placeholder="Used to log in and track loan status" required>
+              </div>
+
+              <!-- 5. VERIFICATION CONSENT & NCA LEGAL CRITERIA -->
+              <div class="section-header">5. Institutional Verification & Bureau Consents</div>
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="credit_check_consent" value="true" required id="creditConsentCheck">
+                <label class="form-check-label text-muted small" for="creditConsentCheck">
+                  <strong>Credit Bureau Consent:</strong> I confirm I am at least 18 years old and grant explicit consent under the National Credit Act (NCA) to process credit bureau checks, assess credit score history, and verify existing obligations.
+                </label>
+              </div>
+              <div class="form-check mb-4">
+                <input class="form-check-input" type="checkbox" name="institution_check_consent" value="true" required id="instConsentCheck">
+                <label class="form-check-label text-muted small" for="instConsentCheck">
+                  <strong>Institutional & Bank Verification Consent:</strong> I hereby authorize the Credit Provider to verify my personal details, salary, income deposits, employment status, and financial records directly with my banking institution, employer, and other relevant regulatory bodies.
+                </label>
+              </div>
+
+              <!-- 6. ONLINE DIGITAL SIGNATURE -->
+              <div class="section-header">6. Online Client Signature</div>
+              <p class="text-muted small">Please draw your legal signature in the box below using your mouse or touchscreen:</p>
+              <div class="mb-3 text-center">
+                <canvas id="sig-canvas" width="500" height="150" class="w-100"></canvas>
+                <div class="mt-2 text-end">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="sig-clearBtn">Clear Signature</button>
+                </div>
+                <input type="hidden" name="digital_signature" id="sig-dataUrl">
+              </div>
+
+              <button type="submit" class="btn btn-primary w-100 fw-bold py-2 mt-3">Submit Loan Application</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- AGENT APPLICATION FORM -->
+        <div class="tab-pane fade" id="agent-apply">
+          <div class="card p-4">
+            <h4 class="fw-bold mb-2 text-info">Sales Agent Registration</h4>
+            <p class="text-muted small mb-3" id="agentCommissionText">Earn commission on approved loans!</p>
+            <form id="agentForm" enctype="multipart/form-data">
+              <div class="row g-3 mb-3">
+                <div class="col-md-6"><label class="form-label">First Name</label><input type="text" name="first_name" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Last Name</label><input type="text" name="last_name" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">ID Number</label><input type="text" name="id_number" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Phone Number</label><input type="text" name="phone" class="form-control" required></div>
+                <div class="col-md-12"><label class="form-label">Email Address</label><input type="email" name="email" class="form-control" required></div>
+              </div>
+
+              <div class="mb-3"><label class="form-label">Upload CV / ID Copy</label><input type="file" name="id_copy" class="form-control" required></div>
+              <div class="mb-3"><label class="form-label">Account Password</label><input type="password" name="password" class="form-control" required></div>
+
+              <button type="submit" class="btn btn-info text-white w-100 fw-bold">Submit Agent Application</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const pathSegments = window.location.pathname.split('/').filter(Boolean);
+    const companySlug = pathSegments[pathSegments.length - 1] || 'l3-technologies';
+
+    // Live Render Backend Host
+    const BACKEND_API_BASE = 'https://loans-1uwj.onrender.com';
+
+    function handleEmpStatusChange(status) {
+      const label = document.getElementById('incomeProofLabel');
+      if (status === 'SELF_EMPLOYED') {
+        label.innerText = 'Proof of Income (6 Months Financials / Accountant Drawing Letter)';
+      } else {
+        label.innerText = 'Proof of Income (Latest 3 Salary Slips)';
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const res = await fetch(`${BACKEND_API_BASE}/api/company/public-config/${companySlug}`);
+        const data = await res.json();
+        if (res.ok) {
+          document.getElementById('providerName').innerText = data.company_name;
+          document.title = `Loan & Agent Application | ${data.company_name}`;
+          if (data.agents_module_active) {
+            document.getElementById('agentTabContainer').style.display = 'block';
+            document.getElementById('agentCommissionText').innerText = `Earn R${parseFloat(data.agent_commission_amount).toFixed(2)} commission per approved loan!`;
+          }
+        } else {
+          document.getElementById('providerName').innerText = 'Credit Provider Portal';
+        }
+      } catch (err) { 
+        console.error('Error fetching config', err); 
+        document.getElementById('providerName').innerText = 'Credit Provider Portal';
+      }
+    }
+
+    // --- DIGITAL SIGNATURE CANVAS LOGIC ---
+    const canvas = document.getElementById('sig-canvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+
+    function getCanvasPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top
+      };
+    }
+
+    function startDrawing(e) {
+      drawing = true;
+      const pos = getCanvasPos(e);
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      if (e.cancelable) e.preventDefault();
+    }
+
+    function draw(e) {
+      if (!drawing) return;
+      const pos = getCanvasPos(e);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+      if (e.cancelable) e.preventDefault();
+    }
+
+    function stopDrawing() {
+      drawing = false;
+    }
+
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseleave', stopDrawing);
+
+    canvas.addEventListener('touchstart', startDrawing, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', stopDrawing);
+
+    document.getElementById('sig-clearBtn').addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      document.getElementById('sig-dataUrl').value = '';
+    });
+
+    // --- FORM SUBMISSION ---
+    document.getElementById('borrowerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      // Save Signature
+      const dataUrl = canvas.toDataURL();
+      document.getElementById('sig-dataUrl').value = dataUrl;
+
+      const formData = new FormData(e.target);
+      try {
+        const res = await fetch(`${BACKEND_API_BASE}/api/borrowers/apply/${companySlug}`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (res.ok) {
+          alert('Loan application and signed verification consents submitted successfully! You can now log into your borrower dashboard.');
+          window.location.href = '/borrower-login.html';
+        } else {
+          alert(data.error || 'Submission failed.');
+        }
+      } catch (err) { alert('Network or submission error.'); }
+    });
+
+    document.getElementById('agentForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      try {
+        const res = await fetch(`${BACKEND_API_BASE}/api/agents/apply/${companySlug}`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (res.ok) {
+          alert('Sales agent application submitted successfully! Awaiting provider approval.');
+          e.target.reset();
+        } else {
+          alert(data.error || 'Submission failed.');
+        }
+      } catch (err) { alert('Network or submission error.'); }
+    });
+
+    loadConfig();
+
+    // Automatically route any /apply/slug request from Cloudflare to your Render backend
+  if (window.location.pathname.startsWith('/apply/')) {
+    window.location.replace(`https://loans-1uwj.onrender.com${window.location.pathname}`);
+  }
+  </script>
+</body>
+</html>
